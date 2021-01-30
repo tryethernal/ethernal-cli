@@ -94,7 +94,7 @@ function getProjectType(dir) {
         return false;
     }
     if (isTruffleProject)
-        return PROJECT_TYPES.TRUFFLE;
+        watchArtifacts(dir);
     else
         return PROJECT_TYPES.HARHDAT;
 }
