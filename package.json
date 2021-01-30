@@ -1,0 +1,26 @@
+{
+  "name": "ethernal",
+  "version": "0.0.1",
+  "description": "CLI interface for Ethernal",
+  "main": "bin/index.js",
+  "bin": {
+    "ethernal": "./bin/index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ethernal"
+  ],
+  "author": "Antoine de Chevigné",
+  "license": "ISC",
+  "dependencies": {
+    "chokidar": "^3.5.1",
+    "configstore": "^5.0.1",
+    "firebase": "^8.2.4",
+    "inquirer": "^7.3.3",
+    "keytar": "^7.3.0",
+    "web3": "^1.3.3",
+    "yargs": "^16.2.0"
+  }
+}
