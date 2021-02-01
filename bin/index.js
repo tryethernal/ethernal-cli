@@ -129,9 +129,7 @@ function watchArtifacts(dir, projectConfig) {
         dir: dir,
         base: projectConfig.dir
     });
-
-    var contractArtifact = {};
-    const watcher = chokidar.watch(artifactsDir, { cwd: artifactsDir })
+    const watcher = chokidar.watch('.', { cwd: artifactsDir })
         .on('add', (path) => {
             updateContractArtifact(projectConfig.func(artifactsDir, path));
         })
