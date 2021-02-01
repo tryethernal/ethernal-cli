@@ -14,7 +14,7 @@ module.exports = {
             },
             {
                 name: 'password',
-                type: 'passowrd',
+                type: 'password',
                 message: 'Password (will be securely stored in your local keychain):',
                 validate: function(value) {
                     if (value.length) return true;

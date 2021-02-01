@@ -11,8 +11,14 @@ const credentials = require('../credentials');
 const inquirer = require('../inquirer');
 
 const PROJECT_TYPES = {
-    TRUFFLE: 0,
-    HARHDAT: 1
+    TRUFFLE: {
+        dir: 'build/contracts',
+        func: getTruffleArtifact
+    },
+    HARDHAT: {
+        dir: 'artifacts/build-info',
+        func: getHardhatArtifact
+    }
 };
 
 const options = yargs
@@ -21,7 +27,6 @@ const options = yargs
         return yargs.option('w', { alias: 'workspace', describe: 'Workspace to connect to.', type: 'string', demandOption: false })
             .option('d', { alias: 'dir', type: 'array', describe: 'Project directory to watch', demandOption: false })
     }, listen)
-        
     .argv;
 
 let web3, user, rpcServer;
@@ -49,7 +54,8 @@ async function subscribe() {
 
 function onConnected() {
     console.log(`Connected to ${rpcServer}`);
-    options.dir.forEach((dir) => { 
+    var workingDirectories = options.dir ? options.dir : ['.'];
+    workingDirectories.forEach((dir) => { 
         var projectType = getProjectType(dir);
         if (projectType) {
             watchArtifacts(dir, projectType);
@@ -90,13 +96,13 @@ function getProjectType(dir) {
     var isHardhatProject = fs.existsSync(hardhatConfigPath);
 
     if (!isTruffleProject && !isHardhatProject) {
-        console.log(`${options.dir} does not contain a truffle-config.js or hardhat.config.js file, contracts won't be uploaded automatically.`);
+        console.log(`${dir} does not contain a truffle-config.js or hardhat.config.js file, contracts won't be uploaded automatically.`);
         return false;
     }
     if (isTruffleProject)
-        watchArtifacts(dir);
+        watchArtifacts(dir, PROJECT_TYPES.TRUFFLE);
     else
-        return PROJECT_TYPES.HARHDAT;
+        watchArtifacts(dir, PROJECT_TYPES.HARDHAT);
 }
 
 function updateContractArtifact(artifact) {
@@ -114,27 +120,27 @@ function updateContractArtifact(artifact) {
         .then(() => console.log(`Updated artifacts for contract ${artifact.name} (${artifact.address}), with dependencies: ${Object.entries(artifact.dependencies).map(art => art[1].name).join(', ')}`));
 }
 
-function watchArtifacts(dir) {
+function watchArtifacts(dir, projectConfig) {
     if (!dir) {
         console.log('Please specify a directory to watch.');
         return;
     }
     var artifactsDir = path.format({
         dir: dir,
-        base: 'build/contracts'
+        base: projectConfig.dir
     });
 
     var contractArtifact = {};
     const watcher = chokidar.watch(artifactsDir, { cwd: artifactsDir })
         .on('add', (path) => {
-            updateContractArtifact(getContractArtifact(artifactsDir, path));
+            updateContractArtifact(projectConfig.func(artifactsDir, path));
         })
         .on('change', (path) => {
-            updateContractArtifact(getContractArtifact(artifactsDir, path));
+            updateContractArtifact(projectConfig.func(artifactsDir, path));
         });
 }
 
-function getContractArtifact(artifactsDir, fileName) {
+function getTruffleArtifact(artifactsDir, fileName) {
     var contractArtifact;
     if (fileName != 'Migrations.json') {
         var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
@@ -158,6 +164,10 @@ function getContractArtifact(artifactsDir, fileName) {
     return contractArtifact;
 }
 
+function getHardhatArtifact(artifactsDir, fileName) {
+    var contractAddress;
+}
+
 function getArtifactDependencies(parsedArtifact) {
     var dependencies = {}
     Object.entries(parsedArtifact.ast.exportedSymbols)
@@ -168,7 +178,7 @@ function getArtifactDependencies(parsedArtifact) {
                     artifact: null
                 }
             }
-        });
+        });    
     return dependencies;
 }
 
@@ -194,7 +204,7 @@ function syncTransaction(block, transaction, transactionReceipt) {
         .then(() => console.log(`Synced transaction ${sTransaction.hash}`));
 }
 
-function sanitize(obj) {
+function sanitize(obj) {    
     return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v != null));
 }
 
@@ -204,7 +214,8 @@ async function setLogin() {
         try {
             user = (await firebase.auth().signInWithEmailAndPassword(newCredentials.email, newCredentials.password)).user;
             credentials.set(newCredentials.email, newCredentials.password);
-            console.log('You are now logged. Run "ethernal listen" to get started.')
+            console.log('You are now logged in. Run "ethernal listen" to get started.')
+            process.exit()
         }
         catch(error) {
             console.log(error.message);
@@ -234,7 +245,8 @@ async function login() {
 
 async function getDefaultWorkspace() {
     var workspaces = await db.workspaces();
-    return workspaces[0];
+    var defaultWorkspace = await db.getWorkspace(workspaces[0]);
+    return defaultWorkspace;
 }
 
 async function setWorkspace() {
