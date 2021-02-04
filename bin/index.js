@@ -13,11 +13,13 @@ const inquirer = require('../inquirer');
 const PROJECT_TYPES = {
     TRUFFLE: {
         dir: 'build/contracts',
-        func: getTruffleArtifact
+        func: getTruffleArtifact,
+        name: 'Truffle'
     },
     HARDHAT: {
         dir: 'artifacts/build-info',
-        func: getHardhatArtifact
+        func: getHardhatArtifact,
+        name: 'Truffle'
     }
 };
 
@@ -55,9 +57,11 @@ async function subscribe() {
 function onConnected() {
     console.log(`Connected to ${rpcServer}`);
     var workingDirectories = options.dir ? options.dir : ['.'];
+    console.log(`Watching following directories for artifacts: ${workingDirectories}`);
     workingDirectories.forEach((dir) => { 
         var projectType = getProjectType(dir);
         if (projectType) {
+            console.log(`Detected ${projectType.name} project for ${dir}`)
             watchArtifacts(dir, projectType);
         }
     });
@@ -100,9 +104,9 @@ function getProjectType(dir) {
         return false;
     }
     if (isTruffleProject)
-        watchArtifacts(dir, PROJECT_TYPES.TRUFFLE);
+        return PROJECT_TYPES.TRUFFLE;
     else
-        watchArtifacts(dir, PROJECT_TYPES.HARDHAT);
+        return PROJECT_TYPES.HARDHAT;
 }
 
 function updateContractArtifact(artifact) {
@@ -129,16 +133,20 @@ function watchArtifacts(dir, projectConfig) {
         dir: dir,
         base: projectConfig.dir
     });
+    console.log(`Starting watcher for ${artifactsDir}`);
     const watcher = chokidar.watch('.', { cwd: artifactsDir })
         .on('add', (path) => {
+            console.log(`add event for ${path}`);
             updateContractArtifact(projectConfig.func(artifactsDir, path));
         })
         .on('change', (path) => {
+            console.log(`change event for ${path}`);
             updateContractArtifact(projectConfig.func(artifactsDir, path));
         });
 }
 
 function getTruffleArtifact(artifactsDir, fileName) {
+    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
     var contractArtifact;
     if (fileName != 'Migrations.json') {
         var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
