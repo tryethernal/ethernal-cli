@@ -1,11 +1,13 @@
 const firebase = require('firebase/app');
 require('firebase/firestore');
+require('firebase/database');
 require('firebase/auth');
 
 const { FIREBASE_CONFIG } = require('./config');
 
 const app = firebase.initializeApp(FIREBASE_CONFIG);
 const _db = app.firestore();
+const _rtdb = firebase.database();
 
 var contractSerializer = {
     serialize: snapshot => {
@@ -41,6 +43,11 @@ var _DB = class DB {
             .collection(path);
         
         return ref;
+    }
+
+    contractStorage(contractAddress) {
+        if (!this.userId || !this.workspace) return;
+        return _rtdb.ref(`/users/${this.userId}/workspaces/${this.workspace.name}/contracts/${contractAddress}`);
     }
     
     async settings() {
