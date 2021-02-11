@@ -2,6 +2,7 @@
 
 const yargs = require('yargs');
 const Web3 = require('web3');
+const ethers = require('ethers');
 const chokidar = require('chokidar');
 const fs = require('fs');
 const path = require('path');
@@ -26,8 +27,11 @@ const PROJECT_TYPES = {
 const options = yargs
     .command('login', 'Login to your Ethernal account', {}, setLogin)
     .command('listen', 'Start listening for transactions', (yargs) => {
-        return yargs.option('w', { alias: 'workspace', describe: 'Workspace to connect to.', type: 'string', demandOption: false })
+        return yargs
+            .option('w', { alias: 'workspace', describe: 'Workspace to connect to.', type: 'string', demandOption: false })
             .option('d', { alias: 'dir', type: 'array', describe: 'Project directory to watch', demandOption: false })
+            .option('s', { alias: 'server', describe: 'Do not watch for artifacts change - only listen for transactions', demandOption: false })
+            .option('l', { alias: 'local', describe: 'Do not listen for transactions - only watch contracts', demandOption: false })
     }, listen)
     .argv;
 
@@ -36,15 +40,24 @@ let contractAddresses = {};
 let db = new firebase.DB();
 
 async function connect() {
-    var settings = await db.settings();
-    rpcServer = new URL(db.workspace.rpcServer);
-    var provider = Web3.providers.WebsocketProvider;
-    if (rpcServer.protocol == 'http' || rpcServer.protocol == 'https') {
-        provider = Web3.providers.HttpProvider;
+    if (options.local) {
+        console.log('Local option activated - only watching for contract changes');
+        watchDirectories();
+        if (options.server) {
+            console.warn("You also passed the server option, but it won't be used, transactions won't be watched.");
+        }
     }
+    else {
+        var settings = await db.settings();
+        rpcServer = new URL(db.workspace.rpcServer);
+        var provider = Web3.providers.WebsocketProvider;
+        if (rpcServer.protocol == 'http' || rpcServer.protocol == 'https') {
+            provider = Web3.providers.HttpProvider;
+        }
 
-    web3 = new Web3(new provider(rpcServer));
-    subscribe();
+        web3 = new Web3(new provider(rpcServer));
+        subscribe();
+    }
 }
 
 async function subscribe() {
@@ -54,17 +67,26 @@ async function subscribe() {
         .on('error', onError);
 }
 
-function onConnected() {
-    console.log(`Connected to ${rpcServer}`);
+function watchDirectories() {
     var workingDirectories = options.dir ? options.dir : ['.'];
     console.log(`Watching following directories for artifacts: ${workingDirectories}`);
-    workingDirectories.forEach((dir) => { 
+    workingDirectories.forEach((dir) => {
         var projectType = getProjectType(dir);
         if (projectType) {
             console.log(`Detected ${projectType.name} project for ${dir}`)
             watchArtifacts(dir, projectType);
         }
     });
+}
+
+function onConnected() {
+    console.log(`Connected to ${rpcServer}`);
+    if (options.server) {
+        console.log('Server option activated - only listening to transactions');
+    }
+    else {
+        watchDirectories();
+    }
 }
 
 function onData(blockHeader, error) {
@@ -109,19 +131,19 @@ function getProjectType(dir) {
         return PROJECT_TYPES.HARDHAT;
 }
 
-function updateContractArtifact(artifact) {
-    if (!artifact) {
+function updateContractArtifact(contract) {
+    if (!contract) {
         return;
     }
-    db.collection('contracts')
-        .doc(artifact.address)
-        .set({
-            name: artifact.name,
-            address: artifact.address,
-            artifact: artifact.raw,
-            dependencies: artifact.dependencies
-        })
-        .then(() => console.log(`Updated artifacts for contract ${artifact.name} (${artifact.address}), with dependencies: ${Object.entries(artifact.dependencies).map(art => art[1].name).join(', ')}`));
+    var storeArtifactPromise = db.contractStorage(`${contract.address}/artifact`).set(contract.artifact);
+    var storeDependenciesPromise = db.contractStorage(`${contract.address}/dependencies`).set(contract.dependencies);
+
+    Promise.all([storeArtifactPromise, storeDependenciesPromise]).then(() => {
+        db.collection('contracts')
+            .doc(contract.address)
+            .set(contract, { merge: true })
+            .then(() => console.log(`Updated artifacts for contract ${contract.name} (${contract.address}), with dependencies: ${Object.entries(contract.dependencies).map(art => art[1].name).join(', ')}`));
+    });
 }
 
 function watchArtifacts(dir, projectConfig) {
@@ -136,7 +158,7 @@ function watchArtifacts(dir, projectConfig) {
     console.log(`Starting watcher for ${artifactsDir}`);
     const watcher = chokidar.watch('.', { cwd: artifactsDir })
         .on('add', (path) => {
-            console.log(`add event for ${path}`);
+            console.log(`Got add event for ${path}`);
             updateContractArtifact(projectConfig.func(artifactsDir, path));
         })
         .on('change', (path) => {
@@ -147,7 +169,7 @@ function watchArtifacts(dir, projectConfig) {
 
 function getTruffleArtifact(artifactsDir, fileName) {
     console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
-    var contractArtifact;
+    var contract;
     if (fileName != 'Migrations.json') {
         var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
         var parsedArtifact = JSON.parse(rawArtifact);
@@ -156,22 +178,51 @@ function getTruffleArtifact(artifactsDir, fileName) {
             contractAddresses[parsedArtifact.contractName] = contractAddress;
             var artifactDependencies = getArtifactDependencies(parsedArtifact);
             for (const key in artifactDependencies) {
-                artifactDependencies[key].artifact = fs.readFileSync(path.format({ dir: artifactsDir, base: `${artifactDependencies[key].name}.json`}), 'utf8');
+                var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+                artifactDependencies[key] = JSON.stringify({
+                    contractName: dependencyArtifact.contractName,
+                    abi: dependencyArtifact.abi,
+                    ast: dependencyArtifact.ast
+                })
             }
-            contractArtifact = {
-                address: contractAddress,
+            contract = {
                 name: parsedArtifact.contractName,
-                raw: rawArtifact,
-                parsed: parsedArtifact,
-                dependencies: artifactDependencies,
+                address: contractAddress,
+                artifact: JSON.stringify({
+                    contractName: parsedArtifact.contractName,
+                    abi: parsedArtifact.abi,
+                    ast: parsedArtifact.ast
+                }),
+                dependencies: artifactDependencies
             }
         }
     }
-    return contractArtifact;
+    return contract;
 }
 
 function getHardhatArtifact(artifactsDir, fileName) {
-    var contractAddress;
+    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
+    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
+    var parsedArtifact = JSON.parse(rawArtifact);
+    var contractAddress = fileName.split('.')[0];
+    var contract = {
+        address: contractAddress
+    };
+
+    var contracts = {};
+    for (var contractDir in parsedArtifact.output.contracts) {
+        for (var contractName in parsedArtifact.output.contracts[contractDir]) {
+            contracts[contractDir] = {
+                contractName: contractName,
+                abi: parsedArtifact.output.contracts[contractDir][contractName].abi
+            };
+        }
+
+        contracts.push({
+            name: parsedArtifact.output.contracts[contractDir].name,
+            abi: parsedArtifact.output.contracts[contractDir].abi
+        });
+    }
 }
 
 function getArtifactDependencies(parsedArtifact) {
@@ -179,10 +230,7 @@ function getArtifactDependencies(parsedArtifact) {
     Object.entries(parsedArtifact.ast.exportedSymbols)
         .forEach(symbol => {
             if (symbol[0] != parsedArtifact.contractName) {
-                dependencies[symbol[1][0]] = {
-                    name: symbol[0],
-                    artifact: null
-                }
+                dependencies[symbol[0]] = null;
             }
         });    
     return dependencies;
@@ -197,17 +245,38 @@ function syncBlock(block) {
     });
 }
 
-function syncTransaction(block, transaction, transactionReceipt) {
+async function syncTransaction(block, transaction, transactionReceipt) {
     var sTransaction = sanitize(transaction);
     var txSynced = {
         ...sTransaction,
         receipt: transactionReceipt,
         timestamp: block.timestamp
     }
+
+    txSynced.functionSignature = await getFunctionSignatureForTransaction(sTransaction);
     db.collection('transactions')
         .doc(sTransaction.hash)
         .set(txSynced)
         .then(() => console.log(`Synced transaction ${sTransaction.hash}`));
+}
+
+async function getFunctionSignatureForTransaction(transaction) {
+    if (!transaction.to || !transaction.input || transaction.value == undefined) {
+        return null;
+    }
+    var doc = await db.collection('contracts').doc(transaction.to).get();
+
+    if (!doc || !doc.exists) {
+        return null;
+    }
+
+    var abi = doc.data().abi;
+    var jsonInterface = new ethers.utils.Interface(abi);
+
+    var parsedTransactionData = jsonInterface.parseTransaction({ data: transaction.input, value: transaction.value });
+    var fragment = parsedTransactionData.functionFragment;
+
+    return `${fragment.name}(` + fragment.inputs.map((input) => `${input.type} ${input.name}`).join(', ') + ')'
 }
 
 function sanitize(obj) {    
@@ -221,7 +290,7 @@ async function setLogin() {
             user = (await firebase.auth().signInWithEmailAndPassword(newCredentials.email, newCredentials.password)).user;
             credentials.set(newCredentials.email, newCredentials.password);
             console.log('You are now logged in. Run "ethernal listen" to get started.')
-            process.exit()
+            process.exit(0);
         }
         catch(error) {
             console.log(error.message);
