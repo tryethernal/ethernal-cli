@@ -1,6 +1,8 @@
 # ethernal-cli
 
-_CLI to sync transactions and Truffle artifacts with Ethernal. If you are using Hardhat, use [this plugin](https://github.com/antoinedc/hardhat-ethernal)._
+_CLI to sync transactions with Ethernal._
+
+_Truffle artifacts are also synced through this CLI, if you are using Hardhat, use [this plugin](https://github.com/antoinedc/hardhat-ethernal)._
 
 ## Installation
 
@@ -64,7 +66,7 @@ ethernal listen -s
 ```
 
 ### -l
-Only watch artifact changes, do not listen to transactions. Useful if your ran the ```ethernal listen -s``` somewhere else.
+Only watch artifact changes, do not listen to transactions. Useful if you ran the ```ethernal listen -s``` somewhere else.
 ```bash
 ethernal listen -l
 ```
