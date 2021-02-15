@@ -141,8 +141,12 @@ function updateContractArtifact(contract) {
     Promise.all([storeArtifactPromise, storeDependenciesPromise]).then(() => {
         db.collection('contracts')
             .doc(contract.address)
-            .set(contract, { merge: true })
-            .then(() => console.log(`Updated artifacts for contract ${contract.name} (${contract.address}), with dependencies: ${Object.entries(contract.dependencies).map(art => art[1].name).join(', ')}`));
+            .set({
+                name: contract.name,
+                address: contract.address,
+                abi: contract.abi
+            }, { merge: true })
+            .then(() => console.log(`Updated artifacts for contract ${contract.name} (${contract.address}), with dependencies: ${Object.entries(contract.dependencies).map(art => art[0]).join(', ')}`));
     });
 }
 
@@ -182,16 +186,19 @@ function getTruffleArtifact(artifactsDir, fileName) {
                 artifactDependencies[key] = JSON.stringify({
                     contractName: dependencyArtifact.contractName,
                     abi: dependencyArtifact.abi,
-                    ast: dependencyArtifact.ast
+                    ast: dependencyArtifact.ast,
+                    source: dependencyArtifact.source,
                 })
             }
             contract = {
                 name: parsedArtifact.contractName,
                 address: contractAddress,
+                abi: parsedArtifact.abi,
                 artifact: JSON.stringify({
                     contractName: parsedArtifact.contractName,
                     abi: parsedArtifact.abi,
-                    ast: parsedArtifact.ast
+                    ast: parsedArtifact.ast,
+                    source: parsedArtifact.source,
                 }),
                 dependencies: artifactDependencies
             }
@@ -253,17 +260,24 @@ async function syncTransaction(block, transaction, transactionReceipt) {
         timestamp: block.timestamp
     }
 
-    txSynced.functionSignature = await getFunctionSignatureForTransaction(sTransaction);
+    if (transaction.to && transaction.input && transaction.value) {
+        txSynced.functionSignature = await getFunctionSignatureForTransaction(sTransaction);    
+    }
+    
     db.collection('transactions')
         .doc(sTransaction.hash)
         .set(txSynced)
         .then(() => console.log(`Synced transaction ${sTransaction.hash}`));
+
+    if (!txSynced.to) {
+        db.collection('contracts')
+            .doc(transactionReceipt.contractAddress)
+            .set({ address: transactionReceipt.contractAddress })
+            .then(() => console.log(`Synced new contract at ${transactionReceipt.contractAddress}`));
+    }
 }
 
 async function getFunctionSignatureForTransaction(transaction) {
-    if (!transaction.to || !transaction.input || transaction.value == undefined) {
-        return null;
-    }
     var doc = await db.collection('contracts').doc(transaction.to).get();
 
     if (!doc || !doc.exists) {
@@ -271,6 +285,11 @@ async function getFunctionSignatureForTransaction(transaction) {
     }
 
     var abi = doc.data().abi;
+
+    if (!abi) {
+        return null;
+    }
+
     var jsonInterface = new ethers.utils.Interface(abi);
 
     var parsedTransactionData = jsonInterface.parseTransaction({ data: transaction.input, value: transaction.value });
