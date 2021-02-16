@@ -7,7 +7,7 @@ Truffle artifacts are also synced through this CLI, if you are using Hardhat, us
 ## Installation
 
 ```bash
-yarn add ethernal-cli
+npm install ethernal-cli -g
 ```
 
 ## Usage
