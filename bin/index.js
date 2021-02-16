@@ -307,7 +307,7 @@ async function setLogin() {
         const newCredentials = await inquirer.login();
         try {
             user = (await firebase.auth().signInWithEmailAndPassword(newCredentials.email, newCredentials.password)).user;
-            credentials.set(newCredentials.email, newCredentials.password);
+            await credentials.set(newCredentials.email, newCredentials.password);
             console.log('You are now logged in. Run "ethernal listen" to get started.')
             process.exit(0);
         }
@@ -364,7 +364,7 @@ async function setWorkspace() {
 async function listen() {
     user = await login();
     if (!user) {
-        return console.log('You are not logged in, please run "ethernal login".')
+        process.exit(1);
     }
     console.log(`Logged in with ${await credentials.getEmail()}`);
 
