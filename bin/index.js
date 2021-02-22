@@ -162,11 +162,9 @@ function watchArtifacts(dir, projectConfig) {
     console.log(`Starting watcher for ${artifactsDir}`);
     const watcher = chokidar.watch('.', { cwd: artifactsDir })
         .on('add', (path) => {
-            console.log(`Got add event for ${path}`);
             updateContractArtifact(projectConfig.func(artifactsDir, path));
         })
         .on('change', (path) => {
-            console.log(`change event for ${path}`);
             updateContractArtifact(projectConfig.func(artifactsDir, path));
         });
 }
