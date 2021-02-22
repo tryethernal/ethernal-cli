@@ -1,8 +1,10 @@
 # ethernal-cli
 
-CLI to sync transactions with Ethernal.
+CLI to sync transactions with [Ethernal](https://www.tryethernal.com).
 
 Truffle artifacts are also synced through this CLI, if you are using Hardhat, use [this plugin](https://github.com/antoinedc/hardhat-ethernal).
+
+If you are looking for more detailed doc about Ethernal: (https://doc.tryethernal.com)
 
 ## Installation
 
