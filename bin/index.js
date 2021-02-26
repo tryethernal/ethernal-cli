@@ -16,11 +16,6 @@ const PROJECT_TYPES = {
         dir: 'build/contracts',
         func: getTruffleArtifact,
         name: 'Truffle'
-    },
-    HARDHAT: {
-        dir: 'artifacts/build-info',
-        func: getHardhatArtifact,
-        name: 'Truffle'
     }
 };
 
@@ -121,14 +116,17 @@ function getProjectType(dir) {
     var isTruffleProject = fs.existsSync(truffleConfigPath);
     var isHardhatProject = fs.existsSync(hardhatConfigPath);
 
-    if (!isTruffleProject && !isHardhatProject) {
-        console.log(`${dir} does not contain a truffle-config.js or hardhat.config.js file, contracts won't be uploaded automatically.`);
+    if (!isTruffleProject) {
+        if (isHardhatProject) {
+            console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contract metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
+        }
+        else {
+            console.log(`${dir} does not contain a truffle-config.js file, contracts won't be uploaded automatically.`);
+        }
         return false;
     }
-    if (isTruffleProject)
-        return PROJECT_TYPES.TRUFFLE;
-    else
-        return PROJECT_TYPES.HARDHAT;
+
+    return PROJECT_TYPES.TRUFFLE;
 }
 
 function updateContractArtifact(contract) {
@@ -205,31 +203,6 @@ function getTruffleArtifact(artifactsDir, fileName) {
     return contract;
 }
 
-function getHardhatArtifact(artifactsDir, fileName) {
-    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
-    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
-    var parsedArtifact = JSON.parse(rawArtifact);
-    var contractAddress = fileName.split('.')[0];
-    var contract = {
-        address: contractAddress
-    };
-
-    var contracts = {};
-    for (var contractDir in parsedArtifact.output.contracts) {
-        for (var contractName in parsedArtifact.output.contracts[contractDir]) {
-            contracts[contractDir] = {
-                contractName: contractName,
-                abi: parsedArtifact.output.contracts[contractDir][contractName].abi
-            };
-        }
-
-        contracts.push({
-            name: parsedArtifact.output.contracts[contractDir].name,
-            abi: parsedArtifact.output.contracts[contractDir].abi
-        });
-    }
-}
-
 function getArtifactDependencies(parsedArtifact) {
     var dependencies = {}
     Object.entries(parsedArtifact.ast.exportedSymbols)
@@ -296,7 +269,7 @@ async function getFunctionSignatureForTransaction(transaction) {
     return `${fragment.name}(` + fragment.inputs.map((input) => `${input.type} ${input.name}`).join(', ') + ')'
 }
 
-function sanitize(obj) {    
+function sanitize(obj) {
     return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v != null));
 }
 
