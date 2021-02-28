@@ -10,14 +10,7 @@ const config = require('../config');
 const firebase = require('../firebase');
 const credentials = require('../credentials');
 const inquirer = require('../inquirer');
-
-const PROJECT_TYPES = {
-    TRUFFLE: {
-        dir: 'build/contracts',
-        func: getTruffleArtifact,
-        name: 'Truffle'
-    }
-};
+const TruffleConfig = require('@truffle/config');
 
 const options = yargs
     .command('login', 'Login to your Ethernal account', {}, setLogin)
@@ -64,12 +57,14 @@ async function subscribe() {
 
 function watchDirectories() {
     var workingDirectories = options.dir ? options.dir : ['.'];
-    console.log(`Watching following directories for artifacts: ${workingDirectories}`);
     workingDirectories.forEach((dir) => {
-        var projectType = getProjectType(dir);
-        if (projectType) {
-            console.log(`Detected ${projectType.name} project for ${dir}`)
-            watchArtifacts(dir, projectType);
+        var projectConfig = getProjectConfig(dir);
+        if (projectConfig) {
+            var projectType = projectConfig.truffle_directory ? 'Truffle' : 'Unknown';
+            console.log(`Detected ${projectType} project for ${projectConfig.working_directory}`)
+            if (projectType == 'Truffle') {
+                watchTruffleArtifacts(dir, projectConfig);
+            }
         }
     });
 }
@@ -98,14 +93,13 @@ function onError(error) {
     }
 }
 
-function getProjectType(dir) {
+function getProjectConfig(dir) {
     if (!dir) {
         console.log('Please specify a directory to check.');
         return;
     }
     var truffleConfigPath = path.format({
-        dir: dir,
-        base: 'truffle-config.js'
+        dir: dir
     });
 
     var hardhatConfigPath = path.format({
@@ -113,20 +107,16 @@ function getProjectType(dir) {
         base: 'hardhat.config.js'
     });
 
-    var isTruffleProject = fs.existsSync(truffleConfigPath);
-    var isHardhatProject = fs.existsSync(hardhatConfigPath);
-
-    if (!isTruffleProject) {
+    try {
+        return TruffleConfig.detect({ workingDirectory: truffleConfigPath });
+    } catch(e) {
+        console.log(`${dir} does not contain a truffle-config.js file, contracts metadata won't be uploaded automatically.`);
+        var isHardhatProject = fs.existsSync(hardhatConfigPath);
         if (isHardhatProject) {
-            console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contract metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
-        }
-        else {
-            console.log(`${dir} does not contain a truffle-config.js file, contracts won't be uploaded automatically.`);
+            console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
         }
         return false;
     }
-
-    return PROJECT_TYPES.TRUFFLE;
 }
 
 function updateContractArtifact(contract) {
@@ -148,22 +138,20 @@ function updateContractArtifact(contract) {
     });
 }
 
-function watchArtifacts(dir, projectConfig) {
+function watchTruffleArtifacts(dir, projectConfig) {
     if (!dir) {
         console.log('Please specify a directory to watch.');
         return;
     }
-    var artifactsDir = path.format({
-        dir: dir,
-        base: projectConfig.dir
-    });
-    console.log(`Starting watcher for ${artifactsDir}`);
+    
+    const artifactsDir = projectConfig.contracts_build_directory;
+
     const watcher = chokidar.watch('.', { cwd: artifactsDir })
         .on('add', (path) => {
-            updateContractArtifact(projectConfig.func(artifactsDir, path));
+            updateContractArtifact(getTruffleArtifact(artifactsDir, path));
         })
         .on('change', (path) => {
-            updateContractArtifact(projectConfig.func(artifactsDir, path));
+            updateContractArtifact(getTruffleArtifact(artifactsDir, path));
         });
 }
 
