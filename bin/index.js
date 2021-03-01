@@ -10,19 +10,7 @@ const config = require('../config');
 const firebase = require('../firebase');
 const credentials = require('../credentials');
 const inquirer = require('../inquirer');
-
-const PROJECT_TYPES = {
-    TRUFFLE: {
-        dir: 'build/contracts',
-        func: getTruffleArtifact,
-        name: 'Truffle'
-    },
-    HARDHAT: {
-        dir: 'artifacts/build-info',
-        func: getHardhatArtifact,
-        name: 'Truffle'
-    }
-};
+const TruffleConfig = require('@truffle/config');
 
 const options = yargs
     .command('login', 'Login to your Ethernal account', {}, setLogin)
@@ -69,12 +57,14 @@ async function subscribe() {
 
 function watchDirectories() {
     var workingDirectories = options.dir ? options.dir : ['.'];
-    console.log(`Watching following directories for artifacts: ${workingDirectories}`);
     workingDirectories.forEach((dir) => {
-        var projectType = getProjectType(dir);
-        if (projectType) {
-            console.log(`Detected ${projectType.name} project for ${dir}`)
-            watchArtifacts(dir, projectType);
+        var projectConfig = getProjectConfig(dir);
+        if (projectConfig) {
+            var projectType = projectConfig.truffle_directory ? 'Truffle' : 'Unknown';
+            console.log(`Detected ${projectType} project for ${projectConfig.working_directory}`)
+            if (projectType == 'Truffle') {
+                watchTruffleArtifacts(dir, projectConfig);
+            }
         }
     });
 }
@@ -90,27 +80,31 @@ function onConnected() {
 }
 
 function onData(blockHeader, error) {
-    if (error) {
-        return console.log(error);
+    if (error && error.reason) {
+        return console.log(`Error while receiving data: ${error.reason}`);
     }
 
     web3.eth.getBlock(blockHeader.hash, true).then(syncBlock);
 }
 
 function onError(error) {
-    if (error) {
-        console.log(error);
+    if (error && error.reason) {
+        console.log(`Could not connect to ${rpcServer}. Error: ${error.reason}`);
     }
+    else {
+        console.log(`Could not connect to ${rpcServer}.`);
+    }
+    console.log('Trying to reconnect in 5s...');
+    setTimeout(connect, 5 * 1000);
 }
 
-function getProjectType(dir) {
+function getProjectConfig(dir) {
     if (!dir) {
         console.log('Please specify a directory to check.');
         return;
     }
     var truffleConfigPath = path.format({
-        dir: dir,
-        base: 'truffle-config.js'
+        dir: dir
     });
 
     var hardhatConfigPath = path.format({
@@ -118,17 +112,16 @@ function getProjectType(dir) {
         base: 'hardhat.config.js'
     });
 
-    var isTruffleProject = fs.existsSync(truffleConfigPath);
-    var isHardhatProject = fs.existsSync(hardhatConfigPath);
-
-    if (!isTruffleProject && !isHardhatProject) {
-        console.log(`${dir} does not contain a truffle-config.js or hardhat.config.js file, contracts won't be uploaded automatically.`);
+    try {
+        return TruffleConfig.detect({ workingDirectory: truffleConfigPath });
+    } catch(e) {
+        console.log(`${dir} does not contain a truffle-config.js file, contracts metadata won't be uploaded automatically.`);
+        var isHardhatProject = fs.existsSync(hardhatConfigPath);
+        if (isHardhatProject) {
+            console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
+        }
         return false;
     }
-    if (isTruffleProject)
-        return PROJECT_TYPES.TRUFFLE;
-    else
-        return PROJECT_TYPES.HARDHAT;
 }
 
 function updateContractArtifact(contract) {
@@ -150,22 +143,20 @@ function updateContractArtifact(contract) {
     });
 }
 
-function watchArtifacts(dir, projectConfig) {
+function watchTruffleArtifacts(dir, projectConfig) {
     if (!dir) {
         console.log('Please specify a directory to watch.');
         return;
     }
-    var artifactsDir = path.format({
-        dir: dir,
-        base: projectConfig.dir
-    });
-    console.log(`Starting watcher for ${artifactsDir}`);
+    
+    const artifactsDir = projectConfig.contracts_build_directory;
+
     const watcher = chokidar.watch('.', { cwd: artifactsDir })
         .on('add', (path) => {
-            updateContractArtifact(projectConfig.func(artifactsDir, path));
+            updateContractArtifact(getTruffleArtifact(artifactsDir, path));
         })
         .on('change', (path) => {
-            updateContractArtifact(projectConfig.func(artifactsDir, path));
+            updateContractArtifact(getTruffleArtifact(artifactsDir, path));
         });
 }
 
@@ -203,31 +194,6 @@ function getTruffleArtifact(artifactsDir, fileName) {
         }
     }
     return contract;
-}
-
-function getHardhatArtifact(artifactsDir, fileName) {
-    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
-    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
-    var parsedArtifact = JSON.parse(rawArtifact);
-    var contractAddress = fileName.split('.')[0];
-    var contract = {
-        address: contractAddress
-    };
-
-    var contracts = {};
-    for (var contractDir in parsedArtifact.output.contracts) {
-        for (var contractName in parsedArtifact.output.contracts[contractDir]) {
-            contracts[contractDir] = {
-                contractName: contractName,
-                abi: parsedArtifact.output.contracts[contractDir][contractName].abi
-            };
-        }
-
-        contracts.push({
-            name: parsedArtifact.output.contracts[contractDir].name,
-            abi: parsedArtifact.output.contracts[contractDir].abi
-        });
-    }
 }
 
 function getArtifactDependencies(parsedArtifact) {
@@ -296,7 +262,7 @@ async function getFunctionSignatureForTransaction(transaction) {
     return `${fragment.name}(` + fragment.inputs.map((input) => `${input.type} ${input.name}`).join(', ') + ')'
 }
 
-function sanitize(obj) {    
+function sanitize(obj) {
     return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v != null));
 }
 

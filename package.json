@@ -1,6 +1,6 @@
 {
   "name": "ethernal",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "CLI interface for Ethernal",
   "main": "bin/index.js",
   "bin": {
@@ -15,6 +15,7 @@
   "author": "Antoine de Chevigné",
   "license": "ISC",
   "dependencies": {
+    "@truffle/config": "^1.2.35",
     "chokidar": "^3.5.1",
     "configstore": "^5.0.1",
     "ethers": "^5.0.29",
