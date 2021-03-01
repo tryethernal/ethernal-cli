@@ -80,17 +80,22 @@ function onConnected() {
 }
 
 function onData(blockHeader, error) {
-    if (error) {
-        return console.log(error);
+    if (error && error.reason) {
+        return console.log(`Error while receiving data: ${error.reason}`);
     }
 
     web3.eth.getBlock(blockHeader.hash, true).then(syncBlock);
 }
 
 function onError(error) {
-    if (error) {
-        console.log(error);
+    if (error && error.reason) {
+        console.log(`Could not connect to ${rpcServer}. Error: ${error.reason}`);
     }
+    else {
+        console.log(`Could not connect to ${rpcServer}.`);
+    }
+    console.log('Trying to reconnect in 5s...');
+    setTimeout(connect, 5 * 1000);
 }
 
 function getProjectConfig(dir) {
