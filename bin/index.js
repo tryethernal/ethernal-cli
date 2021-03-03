@@ -69,6 +69,34 @@ function watchDirectories() {
     });
 }
 
+async function catchupBlocks() {
+    var ids = [];
+    var missing = [];
+    db.collection('blocks')
+        .orderBy('number', 'asc')
+        .get()
+        .then(async (snapshot) => {
+            var syncLastBlock = false;
+            snapshot.forEach((block) => ids.push(block.id));
+            var latestBlock = await web3.eth.getBlock('latest');
+
+            if (!ids.length || ids[ids.length - 1] != latestBlock.number) {
+                ids.push(latestBlock.number)
+            }
+
+            for (var i = 0, targetValue = 1; targetValue <= ids[ids.length - 1]; targetValue++) {
+                if (ids[i] != targetValue)
+                    missing.push(targetValue);
+                else
+                    i++;
+            }
+
+            for (var j = 0; j < missing.length; j++) {
+                web3.eth.getBlock(missing[j], true).then(syncBlock)
+            }
+        })
+}
+
 function onConnected() {
     console.log(`Connected to ${rpcServer}`);
     if (options.server) {
@@ -76,6 +104,7 @@ function onConnected() {
     }
     else {
         watchDirectories();
+        catchupBlocks();
     }
 }
 
