@@ -265,7 +265,7 @@ async function syncTransaction(block, transaction, transactionReceipt) {
         },
         timestamp: block.timestamp
     }
-    console.log(txSynced)
+
     if (transaction.to && transaction.input && transaction.value) {
         txSynced.functionSignature = await getFunctionSignatureForTransaction(sTransaction);    
     }
