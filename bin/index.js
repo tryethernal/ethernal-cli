@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const yargs = require('yargs');
-const Web3 = require('web3');
 const ethers = require('ethers');
 const chokidar = require('chokidar');
 const fs = require('fs');
@@ -23,7 +22,7 @@ const options = yargs
     }, listen)
     .argv;
 
-let web3, user, rpcServer;
+let user, rpcServer, rpcProvider;
 let contractAddresses = {};
 let db = new firebase.DB();
 
@@ -36,23 +35,47 @@ async function connect() {
         }
     }
     else {
-        var settings = await db.settings();
         rpcServer = new URL(db.workspace.rpcServer);
-        var provider = Web3.providers.WebsocketProvider;
-        if (rpcServer.protocol == 'http' || rpcServer.protocol == 'https') {
-            provider = Web3.providers.HttpProvider;
+        var urlInfo;
+        var provider = ethers.providers.WebSocketProvider;
+        
+        if (rpcServer.username != '' && rpcServer.password != '') {
+            urlInfo = {
+                url: `${rpcServer.origin}${rpcServer.pathName ? rpcServer.pathName : ''}`,
+                user: rpcServer.username,
+                password: rpcServer.password
+            };
+        }
+        else {
+            urlInfo = rpcServer.href;
         }
 
-        web3 = new Web3(new provider(rpcServer));
+        if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
+            provider = ethers.providers.JsonRpcProvider;
+        }
+        else if (rpcServer.protocol == 'ws:' || rpcServer.protocol == 'wss:') {
+            provider = ethers.providers.WebSocketProvider;
+        }
+
+        rpcProvider = new provider(urlInfo);
         subscribe();
     }
 }
 
 async function subscribe() {
-    web3.eth.subscribe('newBlockHeaders')
-        .on('connected', onConnected)
-        .on('data', onData)
-        .on('error', onError);
+    rpcProvider.on('block', onData);
+    rpcProvider.on('error', onError);
+    rpcProvider.on('pending', onPending);
+    if (options.server) {
+        console.log('Server option activated - only listening to transactions');
+    }
+    else {
+        watchDirectories();
+    }
+}
+
+function onPending() {
+    //TODO: Implement
 }
 
 function watchDirectories() {
@@ -69,51 +92,12 @@ function watchDirectories() {
     });
 }
 
-async function catchupBlocks() {
-    var ids = [];
-    var missing = [];
-    db.collection('blocks')
-        .orderBy('number', 'asc')
-        .get()
-        .then(async (snapshot) => {
-            var syncLastBlock = false;
-            snapshot.forEach((block) => ids.push(block.id));
-            var latestBlock = await web3.eth.getBlock('latest');
-
-            if (!ids.length || ids[ids.length - 1] != latestBlock.number) {
-                ids.push(latestBlock.number)
-            }
-
-            for (var i = 0, targetValue = 1; targetValue <= ids[ids.length - 1]; targetValue++) {
-                if (ids[i] != targetValue)
-                    missing.push(targetValue);
-                else
-                    i++;
-            }
-
-            for (var j = 0; j < missing.length; j++) {
-                web3.eth.getBlock(missing[j], true).then(syncBlock)
-            }
-        })
-}
-
-function onConnected() {
-    console.log(`Connected to ${rpcServer}`);
-    if (options.server) {
-        console.log('Server option activated - only listening to transactions');
-    }
-    else {
-        watchDirectories();
-        catchupBlocks();
-    }
-}
-
-function onData(blockHeader, error) {
+function onData(blockNumber, error) {
     if (error && error.reason) {
         return console.log(`Error while receiving data: ${error.reason}`);
     }
 
-    web3.eth.getBlock(blockHeader.hash, true).then(syncBlock);
+    rpcProvider.getBlockWithTransactions(blockNumber).then(syncBlock);
 }
 
 function onError(error) {
@@ -238,21 +222,50 @@ function getArtifactDependencies(parsedArtifact) {
 
 function syncBlock(block) {
     var sBlock = sanitize(block);
-    db.collection('blocks').doc(sBlock.number.toString()).set(sBlock).then(() => console.log(`Synced block ${sBlock.number}`));
+    var syncedBlock = {
+        hash: sBlock.hash,
+        parentHash: sBlock.parentHash,
+        number: sBlock.number,
+        timestamp: sBlock.timestamp,
+        nonce: sBlock.nonce,
+        difficulty: sBlock.difficulty,
+        gasLimit: sBlock.gasLimit.toString(),
+        gasUsed: sBlock.gasUsed.toString(),
+        miner: sBlock.miner,
+        extraData: sBlock.extraData
+    };
+
+    db.collection('blocks').doc(sBlock.number.toString()).set(syncedBlock).then(() => console.log(`Synced block ${sBlock.number}`));
 
     sBlock.transactions.forEach(transaction => {
-        web3.eth.getTransactionReceipt(transaction.hash).then(receipt => syncTransaction(sBlock, transaction, receipt));
+        rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => syncTransaction(syncedBlock, transaction, receipt));
     });
 }
 
+var stringifyBns = function(obj) {
+    var res = {}
+    for (const key in obj) {
+        if (ethers.BigNumber.isBigNumber(obj[key])) {
+            res[key] = obj[key].toString();
+        }
+        else {
+            res[key] = obj[key];
+        }
+    }
+    return res;
+}
+    
 async function syncTransaction(block, transaction, transactionReceipt) {
-    var sTransaction = sanitize(transaction);
+    var stransactionReceipt = stringifyBns(sanitize(transactionReceipt));
+    var sTransaction = stringifyBns(sanitize(transaction));
     var txSynced = {
-        ...sTransaction,
-        receipt: transactionReceipt,
+       ...sTransaction,
+        receipt: {
+            ...stransactionReceipt
+        },
         timestamp: block.timestamp
     }
-
+    console.log(txSynced)
     if (transaction.to && transaction.input && transaction.value) {
         txSynced.functionSignature = await getFunctionSignatureForTransaction(sTransaction);    
     }
@@ -292,7 +305,10 @@ async function getFunctionSignatureForTransaction(transaction) {
 }
 
 function sanitize(obj) {
-    return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v != null));
+    return Object.fromEntries(
+        Object.entries(obj)
+            .filter(([_, v]) => v != null)
+        );
 }
 
 async function setLogin() {
@@ -331,9 +347,9 @@ async function login() {
 }
 
 async function getDefaultWorkspace() {
-    var workspaces = await db.workspaces();
-    var defaultWorkspace = await db.getWorkspace(workspaces[0]);
-    return defaultWorkspace;
+    var currentUser = await db.currentUser().get();
+    var defaultWorkspace = await currentUser.data().currentWorkspace.get();
+    return { ...defaultWorkspace.data(), name: defaultWorkspace.id };
 }
 
 async function setWorkspace() {
