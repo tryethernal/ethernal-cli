@@ -1,8 +1,8 @@
 const keytar = require('keytar');
 const Configstore = require('configstore');
 
-const CONFIGSTORE_EMAIL_KEY = 'ethernal.email';
-const KEYCHAIN_NAMESPACE = 'ethernal:firebase';
+const CONFIGSTORE_EMAIL_KEY = process.env.NODE_ENV === 'development' ? 'ethernal-dev.email' : 'ethernal.email';
+const KEYCHAIN_NAMESPACE = process.env.NODE_ENV === 'development' ? 'ethernal-dev:firebase' : 'ethernal:firebase';
 
 const configstore = new Configstore(CONFIGSTORE_EMAIL_KEY);
 
