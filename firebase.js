@@ -1,3 +1,6 @@
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
+}
 const firebase = require('firebase/app');
 require('firebase/firestore');
 require('firebase/database');
@@ -8,6 +11,7 @@ const { FIREBASE_CONFIG } = require('./config');
 const app = firebase.initializeApp(FIREBASE_CONFIG);
 const _db = app.firestore();
 const _rtdb = firebase.database();
+const _auth = firebase.auth;
 
 var contractSerializer = {
     serialize: snapshot => {
@@ -31,7 +35,7 @@ var _DB = class DB {
     workspace;
 
     get userId() {
-        return firebase.auth().currentUser.uid;
+        return _auth().currentUser.uid;
     }
 
     collection(path) {
@@ -93,6 +97,17 @@ var _DB = class DB {
         return snapshot.data();
     }
 };
+
+if (process.env.NODE_ENV == 'development') {
+    _auth().useEmulator(process.env.VUE_APP_AUTH_HOST);
+
+    const rtdbSplit = process.env.VUE_APP_RTDB_HOST.split(':');
+    _rtdb.useEmulator(rtdbSplit[0], rtdbSplit[1]);
+
+    const firestoreSplit = process.env.VUE_APP_FIRESTORE_HOST.split(':');
+    _db.useEmulator(firestoreSplit[0], firestoreSplit[1]);
+}
+
 
 module.exports = {
     DB: _DB,

@@ -141,6 +141,7 @@ function updateContractArtifact(contract) {
     if (!contract) {
         return;
     }
+
     var storeArtifactPromise = db.contractStorage(`${contract.address}/artifact`).set(contract.artifact);
     var storeDependenciesPromise = db.contractStorage(`${contract.address}/dependencies`).set(contract.dependencies);
 
@@ -176,34 +177,32 @@ function watchTruffleArtifacts(dir, projectConfig) {
 function getTruffleArtifact(artifactsDir, fileName) {
     console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
     var contract;
-    if (fileName != 'Migrations.json') {
-        var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
-        var parsedArtifact = JSON.parse(rawArtifact);
-        var contractAddress = parsedArtifact.networks[db.workspace.networkId] ? parsedArtifact.networks[db.workspace.networkId].address : null;
-        if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
-            contractAddresses[parsedArtifact.contractName] = contractAddress;
-            var artifactDependencies = getArtifactDependencies(parsedArtifact);
-            for (const key in artifactDependencies) {
-                var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
-                artifactDependencies[key] = JSON.stringify({
-                    contractName: dependencyArtifact.contractName,
-                    abi: dependencyArtifact.abi,
-                    ast: dependencyArtifact.ast,
-                    source: dependencyArtifact.source,
-                })
-            }
-            contract = {
-                name: parsedArtifact.contractName,
-                address: contractAddress,
+    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
+    var parsedArtifact = JSON.parse(rawArtifact);
+    var contractAddress = parsedArtifact.networks[db.workspace.networkId] ? parsedArtifact.networks[db.workspace.networkId].address : null;
+    if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
+        contractAddresses[parsedArtifact.contractName] = contractAddress;
+        var artifactDependencies = getArtifactDependencies(parsedArtifact);
+        for (const key in artifactDependencies) {
+            var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+            artifactDependencies[key] = JSON.stringify({
+                contractName: dependencyArtifact.contractName,
+                abi: dependencyArtifact.abi,
+                ast: dependencyArtifact.ast,
+                source: dependencyArtifact.source,
+            })
+        }
+        contract = {
+            name: parsedArtifact.contractName,
+            address: contractAddress,
+            abi: parsedArtifact.abi,
+            artifact: JSON.stringify({
+                contractName: parsedArtifact.contractName,
                 abi: parsedArtifact.abi,
-                artifact: JSON.stringify({
-                    contractName: parsedArtifact.contractName,
-                    abi: parsedArtifact.abi,
-                    ast: parsedArtifact.ast,
-                    source: parsedArtifact.source,
-                }),
-                dependencies: artifactDependencies
-            }
+                ast: parsedArtifact.ast,
+                source: parsedArtifact.source,
+            }),
+            dependencies: artifactDependencies
         }
     }
     return contract;
