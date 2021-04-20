@@ -153,12 +153,12 @@ function updateContractArtifact(contract) {
 
     var storeArtifactPromise = firebase.functions.httpsCallable('syncContractArtifact')({
         workspace: db.workspace.name,
-        contractAddress: contract.address,
+        address: contract.address,
         artifact: contract.artifact
     });
     var storeDependenciesPromise = firebase.functions.httpsCallable('syncContractDependencies')({
         workspace: db.workspace.name,
-        contractAddress: contract.address,
+        address: contract.address,
         dependencies: contract.dependencies
     });
 
@@ -166,7 +166,7 @@ function updateContractArtifact(contract) {
         firebase.functions.httpsCallable('syncContractData')({
             workspace: db.workspace.name,
             name: contract.name,
-            contractAddress: contract.address,
+            address: contract.address,
             abi: contract.abi
         })
         .then(() => {
