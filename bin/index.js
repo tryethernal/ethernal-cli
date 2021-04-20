@@ -20,6 +20,11 @@ const options = yargs
             .option('s', { alias: 'server', describe: 'Do not watch for artifacts change - only listen for transactions', demandOption: false })
             .option('l', { alias: 'local', describe: 'Do not listen for transactions - only watch contracts', demandOption: false })
     }, listen)
+    .command('sync', 'Sync a block range', (yargs) => {
+        return yargs
+            .option('f', { alias: 'from', describe: 'Starting block', type: 'integer', demandOption: true })
+            .option('t', { alias: 'to', describe: 'Ending block (included)', type: 'integer', demandOption: true })
+    }, syncBlockRange)
     .argv;
 
 let user, rpcServer, rpcProvider;
@@ -35,31 +40,35 @@ async function connect() {
         }
     }
     else {
-        rpcServer = new URL(db.workspace.rpcServer);
-        var urlInfo;
-        var provider = ethers.providers.WebSocketProvider;
-        
-        if (rpcServer.username != '' && rpcServer.password != '') {
-            urlInfo = {
-                url: `${rpcServer.origin}${rpcServer.pathName ? rpcServer.pathName : ''}`,
-                user: rpcServer.username,
-                password: rpcServer.password
-            };
-        }
-        else {
-            urlInfo = rpcServer.href;
-        }
-
-        if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
-            provider = ethers.providers.JsonRpcProvider;
-        }
-        else if (rpcServer.protocol == 'ws:' || rpcServer.protocol == 'wss:') {
-            provider = ethers.providers.WebSocketProvider;
-        }
-
-        rpcProvider = new provider(urlInfo);
+        await setupProvider();
         subscribe();
     }
+}
+
+async function setupProvider() {
+    rpcServer = new URL(db.workspace.rpcServer);
+    var urlInfo;
+    var provider = ethers.providers.WebSocketProvider;
+    
+    if (rpcServer.username != '' && rpcServer.password != '') {
+        urlInfo = {
+            url: `${rpcServer.origin}${rpcServer.pathName ? rpcServer.pathName : ''}`,
+            user: rpcServer.username,
+            password: rpcServer.password
+        };
+    }
+    else {
+        urlInfo = rpcServer.href;
+    }
+
+    if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
+        provider = ethers.providers.JsonRpcProvider;
+    }
+    else if (rpcServer.protocol == 'ws:' || rpcServer.protocol == 'wss:') {
+        provider = ethers.providers.WebSocketProvider;
+    }
+
+    rpcProvider = new provider(urlInfo);
 }
 
 async function subscribe() {
@@ -142,18 +151,29 @@ function updateContractArtifact(contract) {
         return;
     }
 
-    var storeArtifactPromise = db.contractStorage(`${contract.address}/artifact`).set(contract.artifact);
-    var storeDependenciesPromise = db.contractStorage(`${contract.address}/dependencies`).set(contract.dependencies);
+    var storeArtifactPromise = firebase.functions.httpsCallable('syncContractArtifact')({
+        workspace: db.workspace.name,
+        contractAddress: contract.address,
+        artifact: contract.artifact
+    });
+    var storeDependenciesPromise = firebase.functions.httpsCallable('syncContractDependencies')({
+        workspace: db.workspace.name,
+        contractAddress: contract.address,
+        dependencies: contract.dependencies
+    });
 
     Promise.all([storeArtifactPromise, storeDependenciesPromise]).then(() => {
-        db.collection('contracts')
-            .doc(contract.address)
-            .set({
-                name: contract.name,
-                address: contract.address,
-                abi: contract.abi
-            }, { merge: true })
-            .then(() => console.log(`Updated artifacts for contract ${contract.name} (${contract.address}), with dependencies: ${Object.entries(contract.dependencies).map(art => art[0]).join(', ')}`));
+        firebase.functions.httpsCallable('syncContractData')({
+            workspace: db.workspace.name,
+            name: contract.name,
+            contractAddress: contract.address,
+            abi: contract.abi
+        })
+        .then(() => {
+            const dependencies = Object.entries(contract.dependencies).map(art => art[0]);
+            const dependenciesString = dependencies.length ? ` Dependencies: ${dependencies.join(', ')}` : '';
+            console.log(`Updated artifacts for contract ${contract.name} (${contract.address}).${dependenciesString}`);
+        });
     });
 }
 
@@ -220,94 +240,23 @@ function getArtifactDependencies(parsedArtifact) {
 }
 
 function syncBlock(block) {
-    var sBlock = sanitize(block);
-    var syncedBlock = {
-        hash: sBlock.hash,
-        parentHash: sBlock.parentHash,
-        number: sBlock.number,
-        timestamp: sBlock.timestamp,
-        nonce: sBlock.nonce,
-        difficulty: sBlock.difficulty,
-        gasLimit: sBlock.gasLimit.toString(),
-        gasUsed: sBlock.gasUsed.toString(),
-        miner: sBlock.miner,
-        extraData: sBlock.extraData
-    };
-
-    db.collection('blocks').doc(sBlock.number.toString()).set(syncedBlock).then(() => console.log(`Synced block ${sBlock.number}`));
-
-    sBlock.transactions.forEach(transaction => {
-        rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => syncTransaction(syncedBlock, transaction, receipt));
-    });
-}
-
-var stringifyBns = function(obj) {
-    var res = {}
-    for (const key in obj) {
-        if (ethers.BigNumber.isBigNumber(obj[key])) {
-            res[key] = obj[key].toString();
-        }
-        else {
-            res[key] = obj[key];
-        }
+    const promises = [];
+    if (block) {
+        promises.push(firebase.functions.httpsCallable('syncBlock')({ block: block, workspace: db.workspace.name }).then(({data}) => console.log(`Synced block #${data.blockNumber}`)));
+        block.transactions.forEach(transaction => {
+            rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => promises.push(syncTransaction(block, transaction, receipt)));
+        });
     }
-    return res;
+    return Promise.all(promises);
 }
     
-async function syncTransaction(block, transaction, transactionReceipt) {
-    var stransactionReceipt = stringifyBns(sanitize(transactionReceipt));
-    var sTransaction = stringifyBns(sanitize(transaction));
-    var txSynced = {
-       ...sTransaction,
-        receipt: {
-            ...stransactionReceipt
-        },
-        timestamp: block.timestamp
-    }
-
-    if (transaction.to && transaction.input && transaction.value) {
-        txSynced.functionSignature = await getFunctionSignatureForTransaction(sTransaction);    
-    }
-    
-    db.collection('transactions')
-        .doc(sTransaction.hash)
-        .set(txSynced)
-        .then(() => console.log(`Synced transaction ${sTransaction.hash}`));
-
-    if (!txSynced.to) {
-        db.collection('contracts')
-            .doc(transactionReceipt.contractAddress)
-            .set({ address: transactionReceipt.contractAddress })
-            .then(() => console.log(`Synced new contract at ${transactionReceipt.contractAddress}`));
-    }
-}
-
-async function getFunctionSignatureForTransaction(transaction) {
-    var doc = await db.collection('contracts').doc(transaction.to).get();
-
-    if (!doc || !doc.exists) {
-        return null;
-    }
-
-    var abi = doc.data().abi;
-
-    if (!abi) {
-        return null;
-    }
-
-    var jsonInterface = new ethers.utils.Interface(abi);
-
-    var parsedTransactionData = jsonInterface.parseTransaction({ data: transaction.input, value: transaction.value });
-    var fragment = parsedTransactionData.functionFragment;
-
-    return `${fragment.name}(` + fragment.inputs.map((input) => `${input.type} ${input.name}`).join(', ') + ')'
-}
-
-function sanitize(obj) {
-    return Object.fromEntries(
-        Object.entries(obj)
-            .filter(([_, v]) => v != null)
-        );
+function syncTransaction(block, transaction, transactionReceipt) {
+    return firebase.functions.httpsCallable('syncTransaction')({
+        block: block,
+        transaction: transaction,
+        transactionReceipt: transactionReceipt,
+        workspace: db.workspace.name
+    }).then(({data}) => console.log(`Synced transaction ${data.txHash}`));
 }
 
 async function setLogin() {
@@ -369,7 +318,7 @@ async function setWorkspace() {
     db.workspace = currentWorkspace;    
 }
 
-async function listen() {
+async function setupWorkspace() {
     user = await login();
     if (!user) {
         process.exit(1);
@@ -377,6 +326,29 @@ async function listen() {
     console.log(`Logged in with ${await credentials.getEmail()}`);
 
     await setWorkspace();
+}
+
+async function listen() {
+    await setupWorkspace();
     connect();
+}
+
+async function syncBlockRange() {
+    await setupWorkspace();
+    await setupProvider();
+
+    const from = options.from;
+    const to = options.to;
+    if (from >= to) {
+        console.log('"to" must be greater than "from".');
+        process.exit(1);
+    }
+
+    const promises = [];
+    for (var i = from; i <= to; i++)
+        promises.push(rpcProvider.getBlockWithTransactions(i).then(syncBlock));
+
+    Promise.all(promises).then(() => process.exit(0));
+
 }
 

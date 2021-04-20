@@ -28,25 +28,7 @@ ethernal listen
 ```
 For blocks & transactions, the whole object returned by web3 is synchronized with Ethernal.
 
-### Artifacts Uploading
-Running the ```listen``` command in a Truffle project will automatically watch your artifacts, and upload the data everytime it changes.
-You can also pass a path to watch with the ```-d``` flag.
-```bash
-ethernal listen -d ~/solidity/my-project
-```
-Watch multiple directories at once:
-```bash
-ethernal listen -d ~/solidity/my-project,~/solidity/other-project
-```
-
-The CLI will watch artifacts in your build folder, and synchronize the following fields:
-- contractName
-- abi
-- ast
-- source
-
-## Listen Options
-All the following commands are for the ```listen``` command.
+__Options__
 
 ### -w
 Connect to the specified workspace
@@ -77,4 +59,29 @@ ethernal listen -l
 Display help
 ```bash
 ethernal listen -h
+```
+
+### Artifacts Uploading
+Running the ```listen``` command in a Truffle project will automatically watch your artifacts, and upload the data everytime it changes.
+You can also pass a path to watch with the ```-d``` flag.
+```bash
+ethernal listen -d ~/solidity/my-project
+```
+Watch multiple directories at once:
+```bash
+ethernal listen -d ~/solidity/my-project,~/solidity/other-project
+```
+
+The CLI will watch artifacts in your build folder, and synchronize the following fields:
+- contractName
+- abi
+- ast
+- source
+
+
+### Syncing a range of blocks
+
+This will sync all blocks in a range (start and end of the range included), and their transactions. It takes two mandatory parameters: ```-f``` or ```--from``` is the first block to be synchronized, and ```-t``` or ```--to``` which is the last block.
+```bash
+ethernal sync -f 1 -t 10
 ```
