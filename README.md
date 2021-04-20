@@ -81,7 +81,7 @@ The CLI will watch artifacts in your build folder, and synchronize the following
 
 ### Syncing a range of blocks
 
-This will sync all blocks from start to end (both included), and their transactions. It takes two mandatory parameters: ```-f``` or ```--from``` is the first block to be synchronized, and ```-t``` or ```--to``` which is the last block.
+This will sync all blocks in a range (start and end of the range included), and their transactions. It takes two mandatory parameters: ```-f``` or ```--from``` is the first block to be synchronized, and ```-t``` or ```--to``` which is the last block.
 ```bash
 ethernal sync -f 1 -t 10
 ```
