@@ -243,9 +243,12 @@ function syncBlock(block) {
     const promises = [];
     if (block) {
         promises.push(firebase.functions.httpsCallable('syncBlock')({ block: block, workspace: db.workspace.name }).then(({data}) => console.log(`Synced block #${data.blockNumber}`)));
-        block.transactions.forEach(transaction => {
-            rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => promises.push(syncTransaction(block, transaction, receipt)));
-        });
+        for (var i = 0; i < block.transactions.length; i++) {
+            const transaction = block.transactions[i]
+            rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => {
+                promises.push(syncTransaction(block, transaction, receipt));
+            });
+        }
     }
     return Promise.all(promises);
 }
