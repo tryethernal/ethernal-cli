@@ -247,6 +247,9 @@ function syncBlock(block) {
             const transaction = block.transactions[i]
             rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => {
                 promises.push(syncTransaction(block, transaction, receipt));
+                if (!receipt) {
+                    console.log(`Couldn't get receipt information for tx #${transaction.hash}.`);
+                }
             });
         }
     }
