@@ -8,8 +8,23 @@ If you are looking for more detailed doc about Ethernal: https://doc.tryethernal
 
 ## Installation
 
+### OSX / Windows
 ```bash
-npm install ethernal-cli -g
+npm install ethernal -g
+```
+
+### Linux
+On Linux systems, Ethernal CLI relies on libsecret to securely store your password.
+Make sure it's installed by running the following command, depending on your distribution:
+- Debian/Ubuntu: sudo apt-get install libsecret-1-dev
+- Red Hat-based: sudo yum install libsecret-devel
+- Arch Linux: sudo pacman -S libsecret
+
+[Source](https://github.com/atom/node-keytar#on-linux)
+
+Then run:
+```bash
+npm install ethernal -g
 ```
 
 ## Usage
