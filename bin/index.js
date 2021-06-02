@@ -156,13 +156,18 @@ function updateContractArtifact(contract) {
         address: contract.address,
         artifact: contract.artifact
     });
-    var storeDependenciesPromise = firebase.functions.httpsCallable('syncContractDependencies')({
-        workspace: db.workspace.name,
-        address: contract.address,
-        dependencies: contract.dependencies
-    });
 
-    Promise.all([storeArtifactPromise, storeDependenciesPromise]).then(() => {
+    const dependenciesPromises = [];
+    for (const dep in contract.dependencies)
+        dependenciesPromises.push(
+                firebase.functions.httpsCallable('syncContractDependencies')({
+                    workspace: db.workspace.name,
+                    address: contract.address,
+                    dependencies: { [dep]: contract.dependencies[dep] }
+                })
+        );
+
+    Promise.all([storeArtifactPromise, ...dependenciesPromises]).then(() => {
         firebase.functions.httpsCallable('syncContractData')({
             workspace: db.workspace.name,
             name: contract.name,
