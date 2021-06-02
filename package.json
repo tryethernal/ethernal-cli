@@ -1,6 +1,6 @@
 {
   "name": "ethernal",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "CLI interface for Ethernal",
   "main": "bin/index.js",
   "bin": {
