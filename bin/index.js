@@ -25,6 +25,9 @@ const options = yargs
             .option('f', { alias: 'from', describe: 'Starting block', type: 'integer', demandOption: true })
             .option('t', { alias: 'to', describe: 'Ending block (included)', type: 'integer', demandOption: true })
     }, syncBlockRange)
+    .command('reset [workspace]', 'Reset a workspace', (yargs) => {
+        return yargs.positional('workspace', { describe: 'Workspace to reset' })
+    }, resetWorkspace)
     .argv;
 
 let user, rpcServer, rpcProvider;
@@ -363,3 +366,17 @@ async function syncBlockRange() {
 
 }
 
+async function resetWorkspace(argv) {
+    await login();
+
+    const workspace = argv.workspace;
+    console.log(`Resetting workspace "${workspace}"...`);
+    try {
+        await firebase.functions.httpsCallable('resetWorkspace')({ workspace: workspace });
+        console.log('Done!')
+        process.exit(0)
+    } catch(error) {
+        console.log(`Error while resetting workspace: ${error.message}`);
+        process.exit(1);
+    }
+};
