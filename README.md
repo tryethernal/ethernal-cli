@@ -100,3 +100,10 @@ This will sync all blocks in a range (start and end of the range included), and 
 ```bash
 ethernal sync -f 1 -t 10
 ```
+
+### Resetting a workspace
+
+This will delete all accounts/blocks/transactions/contracts from a specific workspace
+```bash
+ethernal reset [workspace]
+```
