@@ -66,10 +66,10 @@ var _DB = class DB {
 };
 
 if (process.env.NODE_ENV == 'development') {
-    _functions.useFunctionsEmulator(process.env.VUE_APP_FUNCTIONS_HOST);
-    _auth().useEmulator(process.env.VUE_APP_AUTH_HOST);
+    _functions.useFunctionsEmulator(process.env.FUNCTIONS_HOST);
+    _auth().useEmulator(process.env.AUTH_HOST);
 
-    const firestoreSplit = process.env.VUE_APP_FIRESTORE_HOST.split(':');
+    const firestoreSplit = process.env.FIRESTORE_HOST.split(':');
     _db.useEmulator(firestoreSplit[0], firestoreSplit[1]);
 }
 
