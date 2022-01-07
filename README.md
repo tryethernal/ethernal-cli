@@ -35,6 +35,8 @@ First, you need to login using your Ethernal credentials (only needed once).
 ethernal login
 ```
 
+Otherwise, you can pass the env variables ETHERNAL_EMAIL and ETHERNAL_PASSWORD to any of the commands below. This is especially useful if you are running Ethernal on Ubuntu or in a Docker container as you might run into issues with the keychain on there.
+
 ### Listening to transactions
 This will synchronize blocks, transactions & contracts to Ethernal
 The CLI will connect to the URL set on the workspace you used last.
