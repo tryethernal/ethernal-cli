@@ -9,6 +9,7 @@ const config = require('../config');
 const firebase = require('../firebase');
 const credentials = require('../credentials');
 const inquirer = require('../inquirer');
+const yaml = require('js-yaml');
 const TruffleConfig = require('@truffle/config');
 
 const options = yargs
@@ -95,10 +96,15 @@ function watchDirectories() {
     workingDirectories.forEach((dir) => {
         var projectConfig = getProjectConfig(dir);
         if (projectConfig) {
-            var projectType = projectConfig.truffle_directory ? 'Truffle' : 'Unknown';
-            console.log(`Detected ${projectType} project for ${projectConfig.working_directory}`)
+            var projectType = projectConfig.project_type;
+            console.log(`Detected ${projectType} project for ${path.resolve(dir)}`)
             if (projectType == 'Truffle') {
                 watchTruffleArtifacts(dir, projectConfig);
+            } else if (projectType == 'Brownie') {
+                if (!config.dev_deployment_artifacts) {
+                    console.log("Notice: If developing locally make sure to set dev_deployment_artifacts to true in brownie-config.yaml");
+                }
+                watchBrownieArtifacts(dir, projectConfig);
             }
         }
     });
@@ -137,16 +143,31 @@ function getProjectConfig(dir) {
         base: 'hardhat.config.js'
     });
 
+    var brownieConfigPath = path.format({
+        dir: dir,
+        base: 'brownie-config.yaml'
+    });
+
+    var config;
     try {
-        return TruffleConfig.detect({ workingDirectory: truffleConfigPath });
+        config = TruffleConfig.detect({ workingDirectory: truffleConfigPath });
+        config.project_type = "Truffle";
     } catch(e) {
-        console.log(`${dir} does not contain a truffle-config.js file, contracts metadata won't be uploaded automatically.`);
-        var isHardhatProject = fs.existsSync(hardhatConfigPath);
-        if (isHardhatProject) {
-            console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
+        var isBrownieProject = fs.existsSync(brownieConfigPath);
+        if (isBrownieProject) {
+            config = yaml.load(fs.readFileSync('brownie-config.yaml', 'utf8'));
+            config.project_type = "Brownie";
+        } else {
+            console.log(`${dir} does not contain a truffle-config.js file, contracts metadata won't be uploaded automatically.`);
+            var isHardhatProject = fs.existsSync(hardhatConfigPath);
+            if (isHardhatProject) {
+                console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
+            }
+            return false;
         }
-        return false;
     }
+
+    return config;
 }
 
 function updateContractArtifact(contract) {
@@ -208,6 +229,60 @@ function getTruffleArtifact(artifactsDir, fileName) {
     var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
     var parsedArtifact = JSON.parse(rawArtifact);
     var contractAddress = parsedArtifact.networks[db.workspace.networkId] ? parsedArtifact.networks[db.workspace.networkId].address : null;
+    if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
+        contractAddresses[parsedArtifact.contractName] = contractAddress;
+        var artifactDependencies = getArtifactDependencies(parsedArtifact);
+        for (const key in artifactDependencies) {
+            var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+            artifactDependencies[key] = JSON.stringify({
+                contractName: dependencyArtifact.contractName,
+                abi: dependencyArtifact.abi,
+                ast: dependencyArtifact.ast,
+                source: dependencyArtifact.source,
+            })
+        }
+        contract = {
+            name: parsedArtifact.contractName,
+            address: contractAddress,
+            abi: parsedArtifact.abi,
+            artifact: JSON.stringify({
+                contractName: parsedArtifact.contractName,
+                abi: parsedArtifact.abi,
+                ast: parsedArtifact.ast,
+                source: parsedArtifact.source,
+            }),
+            dependencies: artifactDependencies
+        }
+    }
+    return contract;
+}
+
+function watchBrownieArtifacts(dir, projectConfig) {
+    if (!dir) {
+        console.log('Please specify a directory to watch.');
+        return;
+    }
+    // Might need to add a way to specify which deployment folder to watch
+    const artifactsDir = path.format({
+        dir: dir,
+        base: "build/deployments"
+    }); 
+    const watcher = chokidar.watch('.', { cwd: artifactsDir })
+        .on('add', (path) => {
+            updateContractArtifact(getBrownieArtifact(artifactsDir, path));
+        })
+        .on('change', (path) => {
+            updateContractArtifact(getBrownieArtifact(artifactsDir, path));
+        });
+}
+
+function getBrownieArtifact(artifactsDir, fileName) {
+    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
+    var contract;
+    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
+    var parsedArtifact = JSON.parse(rawArtifact);
+
+    var contractAddress = parsedArtifact.deployment ? parsedArtifact.deployment.address : null;
     if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
         contractAddresses[parsedArtifact.contractName] = contractAddress;
         var artifactDependencies = getArtifactDependencies(parsedArtifact);
