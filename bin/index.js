@@ -267,7 +267,7 @@ function watchBrownieArtifacts(dir, projectConfig) {
         dir: dir,
         base: "build/deployments"
     }); 
-    const watcher = chokidar.watch('.', { cwd: artifactsDir })
+    const watcher = chokidar.watch('./**/*.json', { cwd: artifactsDir, ignored: 'map.json' })
         .on('add', (path) => {
             updateContractArtifact(getBrownieArtifact(artifactsDir, path));
         })
