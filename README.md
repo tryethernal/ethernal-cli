@@ -95,6 +95,7 @@ The CLI will watch artifacts in your build folder, and synchronize the following
 - ast
 - source
 
+For Brownie projects, the flag ```dev_deployment_artifacts``` needs to be set to ```true``` in ```brownie-config.yaml```.
 
 ### Syncing a range of blocks
 
