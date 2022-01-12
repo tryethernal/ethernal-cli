@@ -2,7 +2,7 @@
 
 CLI to sync transactions with [Ethernal](https://www.tryethernal.com).
 
-Truffle artifacts are also synced through this CLI, if you are using Hardhat, use [this plugin](https://github.com/antoinedc/hardhat-ethernal).
+Truffle & Brownie artifacts are also synced through this CLI, if you are using Hardhat, use [this plugin](https://github.com/antoinedc/hardhat-ethernal).
 
 If you are looking for more detailed doc about Ethernal: https://doc.tryethernal.com
 
@@ -79,7 +79,7 @@ ethernal listen -h
 ```
 
 ### Artifacts Uploading
-Running the ```listen``` command in a Truffle project will automatically watch your artifacts, and upload the data everytime it changes.
+Running the ```listen``` command in a Truffle or Brownie project will automatically watch your artifacts, and upload the data everytime it changes.
 You can also pass a path to watch with the ```-d``` flag.
 ```bash
 ethernal listen -d ~/solidity/my-project
