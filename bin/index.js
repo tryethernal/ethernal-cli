@@ -135,7 +135,8 @@ function getProjectConfig(dir) {
         return;
     }
     var truffleConfigPath = path.format({
-        dir: dir
+        dir: dir,
+        base: 'truffle-config.js'
     });
 
     var hardhatConfigPath = path.format({
@@ -149,22 +150,20 @@ function getProjectConfig(dir) {
     });
 
     var config;
-    try {
+    if (fs.existsSync(truffleConfigPath)) {
         config = TruffleConfig.detect({ workingDirectory: truffleConfigPath });
-        config.project_type = "Truffle";
-    } catch(e) {
-        var isBrownieProject = fs.existsSync(brownieConfigPath);
-        if (isBrownieProject) {
-            config = yaml.load(fs.readFileSync('brownie-config.yaml', 'utf8'));
-            config.project_type = "Brownie";
-        } else {
-            console.log(`${dir} does not contain a truffle-config.js file, contracts metadata won't be uploaded automatically.`);
-            var isHardhatProject = fs.existsSync(hardhatConfigPath);
-            if (isHardhatProject) {
-                console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
-            }
-            return false;
-        }
+        config.project_type = 'Truffle';
+    }
+    else if (fs.existsSync(brownieConfigPath)) {
+        config = yaml.load(fs.readFileSync(brownieConfigPath, 'utf8'));
+        config.project_type = 'Brownie';
+    }
+    else if (fs.existsSync(hardhatConfigPath)) {
+        console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
+    }
+    else {
+        console.log(`${dir} does not appear to be a Truffle or Brownie project, contracts metadata won't be uploaded automatically.`);
+        return false;
     }
 
     return config;
@@ -214,7 +213,7 @@ function watchTruffleArtifacts(dir, projectConfig) {
     
     const artifactsDir = projectConfig.contracts_build_directory;
 
-    const watcher = chokidar.watch('.', { cwd: artifactsDir })
+    const watcher = chokidar.watch('./*.json', { cwd: artifactsDir })
         .on('add', (path) => {
             updateContractArtifact(getTruffleArtifact(artifactsDir, path));
         })
