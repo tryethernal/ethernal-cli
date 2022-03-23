@@ -17,6 +17,10 @@ var _DB = class DB {
 
     workspace;
 
+    get firestore() {
+        return _db;
+    }
+
     get userId() {
         return _auth().currentUser.uid;
     }

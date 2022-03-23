@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const yargs = require('yargs');
+const { sep } = require('path');
 const ethers = require('ethers');
 const chokidar = require('chokidar');
 const fs = require('fs');
@@ -11,6 +12,8 @@ const credentials = require('../credentials');
 const inquirer = require('../inquirer');
 const yaml = require('js-yaml');
 const TruffleConfig = require('@truffle/config');
+const solc = require('solc');
+const linker = require('solc/linker');
 
 const options = yargs
     .command('login', 'Login to your Ethernal account', {}, setLogin)
@@ -29,11 +32,130 @@ const options = yargs
     .command('reset [workspace]', 'Reset a workspace', (yargs) => {
         return yargs.positional('workspace', { describe: 'Workspace to reset' })
     }, resetWorkspace)
-    .argv;
+    .command('verify', 'Verify a contract', (yargs) => {
+        return yargs
+            .option('s', { alias: 'slug', describe: "Slug of the explorer to connect to.", type: 'string', demandOption: true })
+            .option('a', { alias: 'address', describe: 'Address of the contract to verify', type: 'string', demandOption: true })
+            .option('c', { alias: 'compiler', describe: 'Solidity compiler version to use', type: 'string', demandOption: true })
+            .option('n', { alias: 'name', describe: 'Name of the contract to verify', type: 'string', demandOption: true })
+            .option('p', { alias: 'path', describe: 'Path to the file containing the contract to verify', type: 'string', demandOption: true })
+            .option('l', { alias: 'libraries', describe: 'Link external library. Format path/to/library.sol:Library1=0x1234,path/to/library.sol:Library2=0x12345', type: 'string' })
+    }, verifyContract).argv;
 
 let user, rpcServer, rpcProvider;
 let contractAddresses = {};
 let db = new firebase.DB();
+
+function verifyContract() {
+    try {
+        const options = arguments['0'];
+
+        console.log(`Loading compiler (${options.compiler})...`);
+        solc.loadRemoteVersion(options.compiler, (err, solc) => {
+            const imports = {};
+            const inputs = {
+                language: 'Solidity',
+                sources: {
+                    [options.path]: {
+                        content: fs.readFileSync(options.path).toString()
+                    }
+                },
+                settings: {
+                    outputSelection: {
+                       '*': { '*': ['evm.bytecode.object'] }
+                    }
+                }
+            };
+
+            function findImports(importPath) {
+                try {
+                    const relativePath = path.relative(importPath, '.');
+                    const content = fs.readFileSync(relativePath).toString();
+                    imports[relativePath] = { contents: content };
+                    return imports[importPath];
+                } catch(error) {
+                    if (importPath.startsWith('https:')) {
+                        console.log(`Error with import ${importPath}: remote import are not supported`);
+                        process.exit(1);
+                    }
+                    const content = fs.readFileSync(`node_modules${sep}${importPath}`).toString();
+                    imports[importPath] = { contents: content };
+                    return imports[importPath];
+                }
+            }
+
+            console.log('Compiling locally...');
+            const compiledCode = JSON.parse(solc.compile(JSON.stringify(inputs), { import: findImports }));
+            if (compiledCode.errors) {
+                for (let error of compiledCode.errors)
+                    console.log(error.formattedMessage)
+            }
+
+            const formattedLibraries = {};
+            if (options.libraries) {
+                try {
+                    const libraries = options.libraries.split(',');
+                    if (libraries.length > 0) {
+                        libraries.map((library) => {
+                            const split = library.split('=');
+                            formattedLibraries[split[0]] = split[1];
+                        });
+                        linker.linkBytecode(compiledCode.contracts[options.path][options.name].evm.bytecode.object, formattedLibraries);
+                    }
+                } catch (error) {
+                    console.log(`Invalid libraries path option, should be: path/to/library.sol:Library.sol=0x1234,path/to/library.sol:Library2.sol:0x12345.`);
+                    process.exit(1);
+                }
+            }
+
+            console.log('Starting verification...');
+            firebase.functions.httpsCallable('startContractVerification')({
+                explorerSlug: options.slug,
+                contractAddress: options.address,
+                compilerVersion: options.compiler,
+                code: {
+                    sources: {
+                        [options.path]: {
+                            content: fs.readFileSync(options.path).toString()
+                        }
+                    },
+                    imports: imports,
+                    libraries: formattedLibraries
+                },
+                contractName: options.name
+            }).then(({ data: { success, contractPath }}) => {
+                if (success) {
+                    const unsubscribe = db.firestore
+                        .doc(contractPath)
+                        .onSnapshot((contractDoc) => {
+                            const data = contractDoc.data();
+                            if (data.verificationStatus) {
+                                if (data.verificationStatus == 'success') {
+                                    console.log('Verification succeeded!');
+                                    unsubscribe();
+                                    process.exit(0);
+                                }
+                                if (data.verificationStatus == 'failed') {
+                                    console.log('Verification failed!');
+                                    unsubscribe();
+                                    process.exit(0);
+                                }
+                            }
+                        })
+                }
+            }).catch((error) => {
+                console.log(error.message);
+                process.exit(1);
+            });
+        });
+    } catch (error) {
+        if (error.message)
+            console.log(error.message);
+        else
+            console.log(error);
+        process.exit(1);
+    }
+}
 
 async function connect() {
     if (options.local) {
