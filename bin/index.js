@@ -23,6 +23,7 @@ const options = yargs
             .option('d', { alias: 'dir', type: 'array', describe: 'Project directory to watch', demandOption: false })
             .option('s', { alias: 'server', describe: 'Do not watch for artifacts change - only listen for transactions', demandOption: false })
             .option('l', { alias: 'local', describe: 'Do not listen for transactions - only watch contracts', demandOption: false })
+            .option('a', { alias: 'astUpload', describe: 'Upload AST to decode storage', demandOption: false })
     }, listen)
     .command('sync', 'Sync a block range', (yargs) => {
         return yargs
@@ -296,21 +297,26 @@ function updateContractArtifact(contract) {
         return;
     }
 
-    var storeArtifactPromise = firebase.functions.httpsCallable('syncContractArtifact')({
-        workspace: db.workspace.name,
-        address: contract.address,
-        artifact: contract.artifact
-    });
-
     const dependenciesPromises = [];
-    for (const dep in contract.dependencies)
-        dependenciesPromises.push(
-                firebase.functions.httpsCallable('syncContractDependencies')({
-                    workspace: db.workspace.name,
-                    address: contract.address,
-                    dependencies: { [dep]: contract.dependencies[dep] }
-                })
-        );
+
+    if (options.astUpload) {
+        console.log('Uploading contract & dependencies ASTs, this might take a while depending on the size of your contracts.')
+        var storeArtifactPromise = firebase.functions.httpsCallable('syncContractArtifact')({
+            workspace: db.workspace.name,
+            address: contract.address,
+            artifact: contract.artifact
+        });
+
+        for (const dep in contract.dependencies) {
+            dependenciesPromises.push(
+                    firebase.functions.httpsCallable('syncContractDependencies')({
+                        workspace: db.workspace.name,
+                        address: contract.address,
+                        dependencies: { [dep]: contract.dependencies[dep] }
+                    }).then(console.log)
+            );
+        }
+    }
 
     Promise.all([storeArtifactPromise, ...dependenciesPromises]).then(() => {
         firebase.functions.httpsCallable('syncContractData')({
@@ -321,7 +327,7 @@ function updateContractArtifact(contract) {
         })
         .then(() => {
             const dependencies = Object.entries(contract.dependencies).map(art => art[0]);
-            const dependenciesString = dependencies.length ? ` Dependencies: ${dependencies.join(', ')}` : '';
+            const dependenciesString = dependencies.length && options.astUpload ? ` Dependencies: ${dependencies.join(', ')}` : '';
             console.log(`Updated artifacts for contract ${contract.name} (${contract.address}).${dependenciesString}`);
         });
     });
