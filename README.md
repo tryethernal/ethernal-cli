@@ -89,11 +89,8 @@ Watch multiple directories at once:
 ethernal listen -d ~/solidity/my-project,~/solidity/other-project
 ```
 
-The CLI will watch artifacts in your build folder, and synchronize the following fields:
-- contractName
-- abi
-- ast
-- source
+By default, only the name and the ABI of the contract are going to be uploaded. If you want to use the "Storage" tab of contracts page, you'll need to have the AST uploaded as well. To do so, pass the --astUpload flag as a parameter.
+ethernal listen ```--astUpload``` (this will upload the ast field, as well as the source field).
 
 For Brownie projects, the flag ```dev_deployment_artifacts``` needs to be set to ```true``` in ```brownie-config.yaml```.
 
