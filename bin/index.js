@@ -21,7 +21,7 @@ const options = yargs
         return yargs
             .option('w', { alias: 'workspace', describe: 'Workspace to connect to.', type: 'string', demandOption: false })
             .option('d', { alias: 'dir', type: 'array', describe: 'Project directory to watch', demandOption: false })
-            .option('s', { alias: 'server', describe: 'Do not watch for artifacts change - only listen for transactions', demandOption: false })
+            .option('s', { alias: 'server', describe: 'Do not watch for artifacts change - only listen for transactions. For this to work, the chain needs to be accessible from anywhere as the backend is going to query the data, not this CLI', demandOption: false })
             .option('l', { alias: 'local', describe: 'Do not listen for transactions - only watch contracts', demandOption: false })
             .option('a', { alias: 'astUpload', describe: 'Upload AST to decode storage', demandOption: false })
     }, listen)
@@ -237,8 +237,13 @@ function onData(blockNumber, error) {
     if (error && error.reason) {
         return console.log(`Error while receiving data: ${error.reason}`);
     }
-
-    rpcProvider.getBlockWithTransactions(blockNumber).then(syncBlock);
+    console.log(`Syncing block #${blockNumber}...`);
+    if (options.server)
+        firebase.functions
+            .httpsCallable('serverSideBlockSync')({ blockNumber: blockNumber, workspace: db.workspace.name })
+            .catch(console.log);
+    else
+        rpcProvider.getBlockWithTransactions(blockNumber).then(syncBlock);
 }
 
 function onError(error) {
