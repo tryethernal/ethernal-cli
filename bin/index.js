@@ -253,8 +253,7 @@ function onError(error) {
     else {
         console.log(`Could not connect to ${rpcServer}.`);
     }
-    console.log('Trying to reconnect in 5s...');
-    setTimeout(connect, 5 * 1000);
+    process.exit(1);
 }
 
 function getProjectConfig(dir) {
