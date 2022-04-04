@@ -27,8 +27,10 @@ const options = yargs
     }, listen)
     .command('sync', 'Sync a block range', (yargs) => {
         return yargs
+            .option('s', { alias: 'server', describe: 'Sync blocks server side', demandOption: false })
             .option('f', { alias: 'from', describe: 'Starting block', type: 'integer', demandOption: true })
             .option('t', { alias: 'to', describe: 'Ending block (included)', type: 'integer', demandOption: true })
+            .option('w', { alias: 'workspace', describe: 'Workspace to connect to.', type: 'string', demandOption: false })
     }, syncBlockRange)
     .command('reset [workspace]', 'Reset a workspace', (yargs) => {
         return yargs.positional('workspace', { describe: 'Workspace to reset' })
@@ -555,7 +557,6 @@ async function listen() {
 
 async function syncBlockRange() {
     await setupWorkspace();
-    await setupProvider();
 
     const from = options.from;
     const to = options.to;
@@ -564,12 +565,20 @@ async function syncBlockRange() {
         process.exit(1);
     }
 
-    const promises = [];
-    for (var i = from; i <= to; i++)
-        promises.push(rpcProvider.getBlockWithTransactions(i).then(syncBlock));
+    if (options.server) {
+        console.log('Queuing blocks syncing...');
+        await firebase.functions.httpsCallable('resyncBlocks')({ workspace: options.workspace, fromBlock: options.from, toBlock: options.to })
+        console.log('Blocks syncing queued succesfully, they will appear on the dashboard soon!');
+        process.exit(0);
+    }
+    else {
+        await setupProvider();
+        const promises = [];
+        for (var i = from; i <= to; i++)
+            promises.push(rpcProvider.getBlockWithTransactions(i).then(syncBlock));
 
-    Promise.all(promises).then(() => process.exit(0));
-
+        Promise.all(promises).then(() => process.exit(0));
+    }
 }
 
 async function resetWorkspace(argv) {
