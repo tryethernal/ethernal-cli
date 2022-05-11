@@ -1,10 +1,10 @@
 {
   "name": "ethernal",
-  "version": "0.12.3",
+  "version": "0.13.0",
   "description": "CLI interface for Ethernal",
   "repository": "github:tryethernal/ethernal-cli",
   "author": "Antoine de Chevigné",
-  "license": "MIT",
+  "license": "ISC",
   "main": "bin/index.js",
   "bin": {
     "ethernal": "bin/index.js"
@@ -15,8 +15,6 @@
   "keywords": [
     "ethernal"
   ],
-  "author": "Antoine de Chevigné",
-  "license": "ISC",
   "dependencies": {
     "@truffle/config": "^1.2.35",
     "chokidar": "^3.5.1",
