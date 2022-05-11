@@ -2,6 +2,9 @@
   "name": "ethernal",
   "version": "0.12.3",
   "description": "CLI interface for Ethernal",
+  "repository": "github:tryethernal/ethernal-cli",
+  "author": "Antoine de Chevigné",
+  "license": "MIT",
   "main": "bin/index.js",
   "bin": {
     "ethernal": "bin/index.js"

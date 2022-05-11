@@ -14,6 +14,7 @@ const yaml = require('js-yaml');
 const TruffleConfig = require('@truffle/config');
 const solc = require('solc');
 const linker = require('solc/linker');
+const { parseTrace } = require('../tracer');
 
 const options = yargs
     .command('login', 'Login to your Ethernal account', {}, setLogin)
@@ -126,30 +127,28 @@ function verifyContract() {
                     libraries: formattedLibraries
                 },
                 contractName: options.name
-            }).then(({ data: { success, contractPath }}) => {
-                if (success) {
-                    const unsubscribe = db.firestore
-                        .doc(contractPath)
-                        .onSnapshot((contractDoc) => {
-                            const data = contractDoc.data();
-                            if (data.verificationStatus) {
-                                if (data.verificationStatus == 'success') {
-                                    console.log('Verification succeeded!');
-                                    unsubscribe();
-                                    process.exit(0);
-                                }
-                                if (data.verificationStatus == 'failed') {
-                                    console.log('Verification failed!');
-                                    unsubscribe();
-                                    process.exit(0);
-                                }
-                            }
-                        })
+            }).then(async ({ data: { taskId }}) => {
+                let verificationStatus = 'pending';
+                console.log(`Verification status: ${verificationStatus}`);
+                while (verificationStatus == 'pending') {
+                    const res = await firebase.functions.httpsCallable('getContractVerificationStatus')({
+                        explorerSlug: options.slug,
+                        address: options.address
+                    });
+                    if (res.data.status)
+                        verificationStatus = res.data.status;
+                }
+                if (verificationStatus == 'success') {
+                    console.log('Contrat succesfully verified!');
+                }
+                else {
+                    console.log('Contract verification failed');
                 }
             }).catch((error) => {
                 console.log(error.message);
+            }).finally(() => {
                 process.exit(1);
-            });
+            })
         });
     } catch (error) {
         if (error.message)
@@ -456,20 +455,34 @@ function getArtifactDependencies(parsedArtifact) {
 }
 
 function syncBlock(block) {
-    const promises = [];
     if (block) {
-        promises.push(firebase.functions.httpsCallable('syncBlock')({ block: block, workspace: db.workspace.name }).then(({data}) => console.log(`Synced block #${data.blockNumber}`)));
-        for (var i = 0; i < block.transactions.length; i++) {
-            const transaction = block.transactions[i]
-            rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => {
-                promises.push(syncTransaction(block, transaction, receipt));
-                if (!receipt) {
-                    console.log(`Couldn't get receipt information for tx #${transaction.hash}.`);
+        firebase.functions.httpsCallable('syncBlock')({ block: block, workspace: db.workspace.name })
+            .then(({data}) => {
+                console.log(`Synced block #${data.blockNumber}`) 
+                for (var i = 0; i < block.transactions.length; i++) {
+                    const transaction = block.transactions[i]
+                    rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => {
+                        syncTransaction(block, transaction, receipt)
+                            .then(({ data }) => {
+                                console.log(`Synced transaction ${data.txHash}`);
+                                if (shouldSyncTrace())
+                                    traceTransaction(transaction)
+                                        .then(() => console.log(`Synced trace for tx ${transaction.hash}`))
+                                        .catch(console.log);
+                            });
+                        if (!receipt) {
+                            console.log(`Couldn't get receipt information for tx #${transaction.hash}.`);
+                        }
+                    });
                 }
             });
-        }
     }
-    return Promise.all(promises);
+}
+
+function shouldSyncTrace() {
+    return currentWorkspace &&
+        currentWorkspace.advancedOptions &&
+        currentWorkspace.advancedOptions.tracing == 'other';
 }
     
 function syncTransaction(block, transaction, transactionReceipt) {
@@ -478,7 +491,25 @@ function syncTransaction(block, transaction, transactionReceipt) {
         transaction: transaction,
         transactionReceipt: transactionReceipt,
         workspace: db.workspace.name
-    }).then(({data}) => console.log(`Synced transaction ${data.txHash}`));
+    })
+}
+
+async function traceTransaction(transaction) {
+    try {
+        const trace = await rpcProvider.send('debug_traceTransaction', [transaction.hash, {}]).catch(() => null);
+
+        const parsedTrace = await parseTrace(transaction.to, trace, rpcProvider);
+        return firebase.functions.httpsCallable('syncTrace')({
+            workspace: db.workspace.name,
+            txHash: transaction.hash,
+            steps: parsedTrace
+        });
+    } catch(error) {
+        if (error.error && error.error.code == '-32601')
+            console.log('debug_traceTransaction is not available');
+        else
+            console.log(error);
+    }
 }
 
 async function setLogin() {
