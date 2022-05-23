@@ -46,7 +46,7 @@ const options = yargs
             .option('l', { alias: 'libraries', describe: 'Link external library. Format path/to/library.sol:Library1=0x1234,path/to/library.sol:Library2=0x12345', type: 'string' })
     }, verifyContract).argv;
 
-let user, rpcServer, rpcProvider;
+let user, rpcProvider;
 let contractAddresses = {};
 let db = new firebase.DB();
 
@@ -174,20 +174,9 @@ async function connect() {
 }
 
 async function setupProvider() {
-    rpcServer = new URL(db.workspace.rpcServer);
-    var urlInfo;
-    var provider = ethers.providers.WebSocketProvider;
-    
-    if (rpcServer.username != '' && rpcServer.password != '') {
-        urlInfo = {
-            url: `${rpcServer.origin}${rpcServer.pathName ? rpcServer.pathName : ''}`,
-            user: rpcServer.username,
-            password: rpcServer.password
-        };
-    }
-    else {
-        urlInfo = rpcServer.href;
-    }
+    const rpcServer = new URL(db.workspace.rpcServer);
+
+    let provider = ethers.providers.WebSocketProvider;
 
     if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
         provider = ethers.providers.JsonRpcProvider;
@@ -196,7 +185,7 @@ async function setupProvider() {
         provider = ethers.providers.WebSocketProvider;
     }
 
-    rpcProvider = new provider(urlInfo);
+    rpcProvider = new provider(db.workspace.rpcServer);
 }
 
 async function subscribe() {
@@ -249,10 +238,10 @@ function onData(blockNumber, error) {
 
 function onError(error) {
     if (error && error.reason) {
-        console.log(`Could not connect to ${rpcServer}. Error: ${error.reason}`);
+        console.log(`Could not connect to ${db.workspace.rpcServer}. Error: ${error.reason}`);
     }
     else {
-        console.log(`Could not connect to ${rpcServer}.`);
+        console.log(`Could not connect to ${db.workspace.rpcServer}.`);
     }
     process.exit(1);
 }
