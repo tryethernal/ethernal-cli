@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const axios = require('axios');
 const yargs = require('yargs');
 const { sep } = require('path');
 const ethers = require('ethers');
@@ -49,6 +50,8 @@ const options = yargs
 let user, rpcProvider;
 let contractAddresses = {};
 let db = new firebase.DB();
+
+const API_ROOT = process.env.API_ROOT || 'https://app-pql6sv7epq-uc.a.run.app';
 
 function verifyContract() {
     try {
@@ -113,9 +116,8 @@ function verifyContract() {
             }
 
             console.log('Starting verification...');
-            firebase.functions.httpsCallable('startContractVerification')({
+            const data = {
                 explorerSlug: options.slug,
-                contractAddress: options.address,
                 compilerVersion: options.compiler,
                 code: {
                     sources: {
@@ -127,28 +129,12 @@ function verifyContract() {
                     libraries: formattedLibraries
                 },
                 contractName: options.name
-            }).then(async ({ data: { taskId }}) => {
-                let verificationStatus = 'pending';
-                console.log(`Verification status: ${verificationStatus}`);
-                while (verificationStatus == 'pending') {
-                    const res = await firebase.functions.httpsCallable('getContractVerificationStatus')({
-                        explorerSlug: options.slug,
-                        address: options.address
-                    });
-                    if (res.data.status)
-                        verificationStatus = res.data.status;
-                }
-                if (verificationStatus == 'success') {
-                    console.log('Contrat succesfully verified!');
-                }
-                else {
-                    console.log('Contract verification failed');
-                }
-            }).catch((error) => {
-                console.log(error.message);
-            }).finally(() => {
-                process.exit(1);
-            })
+            };
+
+            axios.post(`${API_ROOT}/api/contracts/${options.address}/verify`, data)
+                .then(() => console.log('Verification succeded!'))
+                .catch(({ response: { data }}) => console.log(`Verification failed: ${data}`))
+                .finally(() => process.exit(0));
         });
     } catch (error) {
         if (error.message)

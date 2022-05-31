@@ -17,6 +17,7 @@
   ],
   "dependencies": {
     "@truffle/config": "^1.2.35",
+    "axios": "^0.27.2",
     "chokidar": "^3.5.1",
     "configstore": "^5.0.1",
     "dotenv": "^8.2.0",
