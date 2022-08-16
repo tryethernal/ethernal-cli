@@ -21,7 +21,7 @@ const options = yargs
     .command('login', 'Login to your Ethernal account', {}, setLogin)
     .command('listen', 'Start listening for transactions', (yargs) => {
         return yargs
-            .option('w', { alias: 'workspace', describe: 'Workspace to connect to.', type: 'string', demandOption: false })
+            .option('w', { alias: 'workspace', describe: 'Workspace to connect to', type: 'string', demandOption: false })
             .option('d', { alias: 'dir', type: 'array', describe: 'Project directory to watch', demandOption: false })
             .option('s', { alias: 'server', describe: 'Do not watch for artifacts change - only listen for transactions. For this to work, the chain needs to be accessible from anywhere as the backend is going to query the data, not this CLI', demandOption: false })
             .option('l', { alias: 'local', describe: 'Do not listen for transactions - only watch contracts', demandOption: false })
@@ -39,12 +39,16 @@ const options = yargs
     }, resetWorkspace)
     .command('verify', 'Verify a contract', (yargs) => {
         return yargs
-            .option('s', { alias: 'slug', describe: "Slug of the explorer to connect to.", type: 'string', demandOption: true })
+            .option('s', { alias: 'slug', describe: "Slug of the explorer to connect to", type: 'string', demandOption: true })
             .option('a', { alias: 'address', describe: 'Address of the contract to verify', type: 'string', demandOption: true })
             .option('c', { alias: 'compiler', describe: 'Solidity compiler version to use', type: 'string', demandOption: true })
             .option('n', { alias: 'name', describe: 'Name of the contract to verify', type: 'string', demandOption: true })
             .option('p', { alias: 'path', describe: 'Path to the file containing the contract to verify', type: 'string', demandOption: true })
             .option('l', { alias: 'libraries', describe: 'Link external library. Format path/to/library.sol:Library1=0x1234,path/to/library.sol:Library2=0x12345', type: 'string' })
+            .option('g', { alias: 'constructorArguments', describe: 'Specify constructor arguments (ABI encoded)', type: 'string' })
+            .option('e', { alias: 'evmVersion', describe: 'Specify EVM version (see https://docs.soliditylang.org/en/v0.8.16/using-the-compiler.html#target-options for valid options). Default to latest', type: 'string' })
+            .option('o', { alias: 'optimizer', describe: 'Enable optimizer. Default to false', type: 'boolean' })
+            .option('r', { alias: 'runs', describe: 'Number of runs if optimizer is enabled', type: 'number' })
     }, verifyContract).argv;
 
 let user, rpcProvider;
@@ -70,7 +74,12 @@ function verifyContract() {
                 settings: {
                     outputSelection: {
                        '*': { '*': ['evm.bytecode.object'] }
-                    }
+                    },
+                    optimizer: {
+                        enabled: options.optimizer,
+                        runs: options.runs
+                    },
+                    evmVersion: options.evmVersion
                 }
             };
 
@@ -115,6 +124,7 @@ function verifyContract() {
                 }
             }
 
+            const constructorArguments = options.constructorArguments && options.constructorArguments.startsWith('0x') ? options.constructorArguments.slice(2) : options.constructorArguments;
             console.log('Starting verification...');
             const data = {
                 explorerSlug: options.slug,
@@ -128,7 +138,11 @@ function verifyContract() {
                     imports: imports,
                     libraries: formattedLibraries
                 },
-                contractName: options.name
+                contractName: options.name,
+                constructorArguments: constructorArguments,
+                evmVersion: options.evmVersion,
+                optimizer: options.optimizer,
+                runs: options.runs
             };
 
             axios.post(`${API_ROOT}/api/contracts/${options.address}/verify`, data)
