@@ -113,15 +113,29 @@ ethernal reset [workspace]
 It is possible to verify a contract deployed on a public explorer using `ethernal verify` with the parameters described below.
 Contracts are verified using partial matches, meaning that metadata are stripped before doing the verification.
 
-| Argument               | Shorthand | description                                                                                                                                    | Type    | Required |
-|------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------|---------|----------|
-| --slug                 | -s        | Slug of the explorer to connect to                                                                                                             | string  | Yes      |
-| --address              | -a        | Address of the contract to verify                                                                                                              | string  | Yes      |
-| --compiler             | -c        | Solidity compiler version to use                                                                                                               | string  | Yes      |
-| --name                 | -n        | Name of the contract to verify                                                                                                                 | string  | Yes      |
-| --path                 | -p        | Path to the file containing the contract to verify                                                                                             | string  | Yes      |
-| --libraries            | -l        | Link external library. Format path/to/library.sol:Library1=0x1234,path/to/library.sol:Library2=0x12345                                         | string  | No       |
-| --constructorArguments | -g        | Specify constructor arguments (ABI encoded)                                                                                                    | string  | No       |
-| --evmVersion           | -e        | Specify EVM version (see https://docs.soliditylang.org/en/v0.8.16/using-the-compiler.html#target-options for valid options). Default to latest | string  | No       |
-| --optimizer            | -o        | Enable optimizer. Default to false                                                                                                             | boolean | No       |
-| --runs                 | -r        | Number of runs if optimizer is enabled                                                                                                         | number  | no       |
+| Argument               | Shorthand | description                                                                                                                                          | Type    | Required |
+|------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------|----------|
+| --slug                 | -s        | Slug of the explorer to connect to                                                                                                                   | string  | Yes      |
+| --address              | -a        | Address of the contract to verify                                                                                                                    | string  | Yes      |
+| --compiler             | -c        | Solidity compiler version to use (See list here https://raw.githubusercontent.com/ethereum/solc-bin/gh-pages/bin/list.json, use "longVersion" field) | string  | Yes      |
+| --name                 | -n        | Name of the contract to verify                                                                                                                       | string  | Yes      |
+| --path                 | -p        | Path to the file containing the contract to verify                                                                                                   | string  | Yes      |
+| --libraries            | -l        | Link external library. Format path/to/library.sol:Library1=0x1234,path/to/library.sol:Library2=0x12345                                               | string  | No       |
+| --constructorArguments | -g        | Specify constructor arguments (ABI encoded)                                                                                                          | string  | No       |
+| --evmVersion           | -e        | Specify EVM version (see https://docs.soliditylang.org/en/v0.8.16/using-the-compiler.html#target-options for valid options). Default to latest       | string  | No       |
+| --optimizer            | -o        | Enable optimizer. Default to false                                                                                                                   | boolean | No       |
+| --runs                 | -r        | Number of runs if optimizer is enabled                                                                                                               | number  | no       |
+
+Example:
+```bash
+ethernal verify \
+    --address="0xa4c190681d2b5cc3d86e62379e0bc94afe2282e7" \
+    --slug="ethernal" \
+    --path="contracts/ExampleERC20.sol" \
+    --compiler="v0.8.0+commitc7dfd78e" \
+    --name="ExampleERC20" \
+    --optimizer=true \
+    --runs=1000 \
+    --evmVersion="byzantium" \
+    --constructorArguments="000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000024869000000000000000000000000000000000000000000000000000000000000"
+```
