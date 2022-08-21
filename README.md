@@ -107,3 +107,21 @@ This will delete all accounts/blocks/transactions/contracts from a specific work
 ```bash
 ethernal reset [workspace]
 ```
+
+### [Public Explorer] Verifying a contract
+
+It is possible to verify a contract deployed on a public explorer using `ethernal verify` with the parameters described below.
+Contracts are verified using partial matches, meaning that metadata are stripped before doing the verification.
+
+| Argument               | Shorthand | description                                                                                                                                    | Type    | Required |
+|------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------|---------|----------|
+| --slug                 | -s        | Slug of the explorer to connect to                                                                                                             | string  | Yes      |
+| --address              | -a        | Address of the contract to verify                                                                                                              | string  | Yes      |
+| --compiler             | -c        | Solidity compiler version to use                                                                                                               | string  | Yes      |
+| --name                 | -n        | Name of the contract to verify                                                                                                                 | string  | Yes      |
+| --path                 | -p        | Path to the file containing the contract to verify                                                                                             | string  | Yes      |
+| --libraries            | -l        | Link external library. Format path/to/library.sol:Library1=0x1234,path/to/library.sol:Library2=0x12345                                         | string  | No       |
+| --constructorArguments | -g        | Specify constructor arguments (ABI encoded)                                                                                                    | string  | No       |
+| --evmVersion           | -e        | Specify EVM version (see https://docs.soliditylang.org/en/v0.8.16/using-the-compiler.html#target-options for valid options). Default to latest | string  | No       |
+| --optimizer            | -o        | Enable optimizer. Default to false                                                                                                             | boolean | No       |
+| --runs                 | -r        | Number of runs if optimizer is enabled                                                                                                         | number  | no       |
