@@ -48,7 +48,7 @@ For blocks & transactions, the whole object returned by web3 is synchronized wit
 __Options__
 
 ### -w
-Connect to the specified workspace
+Connect to the specified workspace. You can also set it with the env variable `ETHERNAL_WORKSPACE`.
 ```bash
 ethernal listen -w workspace
 ```
