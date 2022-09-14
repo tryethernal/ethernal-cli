@@ -8,17 +8,19 @@ const chokidar = require('chokidar');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
-const firebase = require('../firebase');
-const credentials = require('../credentials');
 const inquirer = require('../inquirer');
 const yaml = require('js-yaml');
 const TruffleConfig = require('@truffle/config');
-const solc = require('solc');
-const linker = require('solc/linker');
 const { parseTrace } = require('../tracer');
+const Api = require('../api');
+
+let user, rpcProvider, reconnector;
+let contractAddresses = {};
+
+const API_ROOT = process.env.ETHERNAL_API_ROOT || 'https://app-pql6sv7epq-uc.a.run.app';
+const api = new Api(API_ROOT);
 
 const options = yargs
-    .command('login', 'Login to your Ethernal account', {}, setLogin)
     .command('listen', 'Start listening for transactions', (yargs) => {
         return yargs
             .option('w', { alias: 'workspace', describe: 'Workspace to connect to', type: 'string', demandOption: false })
@@ -51,14 +53,10 @@ const options = yargs
             .option('r', { alias: 'runs', describe: 'Number of runs if optimizer is enabled', type: 'number' })
     }, verifyContract).argv;
 
-let user, rpcProvider;
-let contractAddresses = {};
-let db = new firebase.DB();
-
-const API_ROOT = process.env.API_ROOT || 'https://app-pql6sv7epq-uc.a.run.app';
-
 function verifyContract() {
     try {
+        const solc = require('solc');
+        const linker = require('solc/linker');
         const options = arguments['0'];
 
         console.log(`Loading compiler (${options.compiler})...`);
@@ -173,22 +171,27 @@ async function connect() {
     }
 }
 
-async function setupProvider() {
-    const rpcServer = new URL(db.workspace.rpcServer);
+function setupProvider() {
+    try {
+        const rpcServer = new URL(api.currentWorkspace.rpcServer);
 
-    let provider = ethers.providers.WebSocketProvider;
+        let provider = ethers.providers.WebSocketProvider;
 
-    if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
-        provider = ethers.providers.JsonRpcProvider;
+        if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
+            provider = ethers.providers.JsonRpcProvider;
+        }
+        else if (rpcServer.protocol == 'ws:' || rpcServer.protocol == 'wss:') {
+            provider = ethers.providers.WebSocketProvider;
+        }
+
+        rpcProvider = new provider(api.currentWorkspace.rpcServer);
+    } catch(error) {
+        console.log('error');
+        process.exit(1);
     }
-    else if (rpcServer.protocol == 'ws:' || rpcServer.protocol == 'wss:') {
-        provider = ethers.providers.WebSocketProvider;
-    }
-
-    rpcProvider = new provider(db.workspace.rpcServer);
 }
 
-async function subscribe() {
+function subscribe() {
     rpcProvider.on('block', onData);
     rpcProvider.on('error', onError);
     rpcProvider.on('pending', onPending);
@@ -223,27 +226,41 @@ function watchDirectories() {
     });
 }
 
-function onData(blockNumber, error) {
+async function onData(blockNumber, error) {
     if (error && error.reason) {
         return console.log(`Error while receiving data: ${error.reason}`);
     }
+
     console.log(`Syncing block #${blockNumber}...`);
-    if (options.server)
-        firebase.functions
-            .httpsCallable('serverSideBlockSync')({ blockNumber: blockNumber, workspace: db.workspace.name })
-            .catch(console.log);
+    if (options.server) {
+        try {
+            await api.syncBlock({ number: blockNumber }, true);
+        } catch(_error) {
+            console.log(`Error while syncing block #${blockNumber}`);
+        }
+    }
     else
-        rpcProvider.getBlockWithTransactions(blockNumber).then(syncBlock);
+        try {
+            const block = await rpcProvider.getBlockWithTransactions(blockNumber)
+            await syncBlock(block);
+        } catch(_error) {
+            console.log(`Error while syncing block #${blockNumber}`);
+        }
 }
 
 function onError(error) {
-    if (error && error.reason) {
-        console.log(`Could not connect to ${db.workspace.rpcServer}. Error: ${error.reason}`);
-    }
-    else {
-        console.log(`Could not connect to ${db.workspace.rpcServer}.`);
-    }
-    process.exit(1);
+    if (error && error.reason)
+        console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Error: ${error.reason}. Retrying in 5s...`);
+    else
+        console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Retrying in 5s...`);
+
+    reconnect();
+}
+
+function reconnect() {
+    if (reconnector)
+        clearTimeout(reconnector);
+    reconnector = setTimeout(connect, 5000);
 }
 
 function getProjectConfig(dir) {
@@ -291,39 +308,26 @@ function updateContractArtifact(contract) {
         return;
     }
 
-    const dependenciesPromises = [];
+    const promises = [];
 
     if (options.astUpload) {
         console.log('Uploading contract & dependencies ASTs, this might take a while depending on the size of your contracts.')
-        var storeArtifactPromise = firebase.functions.httpsCallable('syncContractArtifact')({
-            workspace: db.workspace.name,
-            address: contract.address,
-            artifact: contract.artifact
-        });
+        promises.push(api.syncContractArtifact(contract.address, contract.artifact));
 
         for (const dep in contract.dependencies) {
-            dependenciesPromises.push(
-                    firebase.functions.httpsCallable('syncContractDependencies')({
-                        workspace: db.workspace.name,
-                        address: contract.address,
-                        dependencies: { [dep]: contract.dependencies[dep] }
-                    }).then(console.log)
+            promises.push(
+                    api.syncContractDependencies(contract.address, { [dep]: contract.dependencies[dep] }).then(console.log)
             );
         }
     }
 
-    Promise.all([storeArtifactPromise, ...dependenciesPromises]).then(() => {
-        firebase.functions.httpsCallable('syncContractData')({
-            workspace: db.workspace.name,
-            name: contract.name,
-            address: contract.address,
-            abi: contract.abi
-        })
-        .then(() => {
-            const dependencies = Object.entries(contract.dependencies).map(art => art[0]);
-            const dependenciesString = dependencies.length && options.astUpload ? ` Dependencies: ${dependencies.join(', ')}` : '';
-            console.log(`Updated artifacts for contract ${contract.name} (${contract.address}).${dependenciesString}`);
-        });
+    Promise.all(promises).then(() => {
+        api.syncContractData(contract.name, contract.address, contract.abi)
+            .then(() => {
+                const dependencies = Object.entries(contract.dependencies).map(art => art[0]);
+                const dependenciesString = dependencies.length && options.astUpload ? ` Dependencies: ${dependencies.join(', ')}` : '';
+                console.log(`Updated artifacts for contract ${contract.name} (${contract.address}).${dependenciesString}`);
+            });
     });
 }
 
@@ -332,7 +336,7 @@ function watchTruffleArtifacts(dir, projectConfig) {
         console.log('Please specify a directory to watch.');
         return;
     }
-    
+
     const artifactsDir = projectConfig.contracts_build_directory;
 
     const watcher = chokidar.watch('./*.json', { cwd: artifactsDir })
@@ -349,7 +353,7 @@ function getTruffleArtifact(artifactsDir, fileName) {
     var contract;
     var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
     var parsedArtifact = JSON.parse(rawArtifact);
-    var contractAddress = parsedArtifact.networks[db.workspace.networkId] ? parsedArtifact.networks[db.workspace.networkId].address : null;
+    var contractAddress = parsedArtifact.networks[api.currentWorkspace.networkId] ? parsedArtifact.networks[api.currentWorkspace.networkId].address : null;
     if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
         contractAddresses[parsedArtifact.contractName] = contractAddress;
         var artifactDependencies = getArtifactDependencies(parsedArtifact);
@@ -443,56 +447,52 @@ function getArtifactDependencies(parsedArtifact) {
     return dependencies;
 }
 
-function syncBlock(block) {
+async function syncBlock(block) {
     if (block) {
-        firebase.functions.httpsCallable('syncBlock')({ block: block, workspace: db.workspace.name })
-            .then(({data}) => {
-                console.log(`Synced block #${data.blockNumber}`) 
-                for (var i = 0; i < block.transactions.length; i++) {
-                    const transaction = block.transactions[i]
-                    rpcProvider.getTransactionReceipt(transaction.hash).then(receipt => {
-                        syncTransaction(block, transaction, receipt)
-                            .then(({ data }) => {
-                                console.log(`Synced transaction ${data.txHash}`);
-                                if (shouldSyncTrace())
-                                    traceTransaction(transaction)
-                                        .then(() => console.log(`Synced trace for tx ${transaction.hash}`))
-                                        .catch(console.log);
-                            });
-                        if (!receipt) {
-                            console.log(`Couldn't get receipt information for tx #${transaction.hash}.`);
-                        }
-                    });
+        try {
+            await api.syncBlock(block);
+            console.log(`Synced block #${block.number}`);
+        } catch(_error) {
+            return console.log(`Error while syncing block #${block.number}.`);
+        }
+
+        for (var i = 0; i < block.transactions.length; i++) {
+            const transaction = block.transactions[i];
+            const receipt = await rpcProvider.getTransactionReceipt(transaction.hash);
+
+            try {
+                await api.syncTransaction(block, transaction, receipt);
+                console.log(`Synced transaction ${transaction.hash}`);
+            } catch(_error) {
+                console.log(`Error while syncing transaction ${transaction.hash}.`);
+            }
+
+            if (shouldSyncTrace()) {
+                try {
+                    await traceTransaction(transaction)
+                    console.log(`Synced trace for transaction ${transaction.hash}`);
+                } catch(_error) {
+                    console.log(`Error while syncing trace for transaction ${transaction.hash}.`);
                 }
-            });
+            }
+
+            if (!receipt) {
+                console.log(`Couldn't get receipt information for transaction #${transaction.hash}.`);
+            }
+        }
     }
 }
 
 function shouldSyncTrace() {
-    return currentWorkspace &&
-        currentWorkspace.advancedOptions &&
-        currentWorkspace.advancedOptions.tracing == 'other';
+    return api.currentWorkspace && api.currentWorkspace.tracing == 'other';
 }
     
-function syncTransaction(block, transaction, transactionReceipt) {
-    return firebase.functions.httpsCallable('syncTransaction')({
-        block: block,
-        transaction: transaction,
-        transactionReceipt: transactionReceipt,
-        workspace: db.workspace.name
-    })
-}
-
 async function traceTransaction(transaction) {
     try {
         const trace = await rpcProvider.send('debug_traceTransaction', [transaction.hash, {}]).catch(() => null);
 
         const parsedTrace = await parseTrace(transaction.to, trace, rpcProvider);
-        return firebase.functions.httpsCallable('syncTrace')({
-            workspace: db.workspace.name,
-            txHash: transaction.hash,
-            steps: parsedTrace
-        });
+        return api.syncTrace(transaction.hash, parsedTrace);
     } catch(error) {
         if (error.error && error.error.code == '-32601')
             console.log('debug_traceTransaction is not available');
@@ -501,71 +501,46 @@ async function traceTransaction(transaction) {
     }
 }
 
-async function setLogin() {
-    do {
-        const newCredentials = await inquirer.login();
-        try {
-            user = (await firebase.auth().signInWithEmailAndPassword(newCredentials.email, newCredentials.password)).user;
-            await credentials.set(newCredentials.email, newCredentials.password);
-            console.log('You are now logged in. Run "ethernal listen" to get started.')
-            process.exit(0);
-        }
-        catch(error) {
-            console.log(error.message);
-        }
-    } while (user === undefined);
-}
-
 async function login() {
     try {
-        var email = await credentials.getEmail();
+        const email = process.env.ETHERNAL_EMAIL;
+        const password = process.env.ETHERNAL_PASSWORD;
+
         if (!email) {
-            return console.log('You are not logged in, please run "ethernal login".')
-        }
-        else {
-            var password = await credentials.getPassword(email);
-            if (!password) {
-                return console.log('You are not logged in, please run "ethernal login".')
-            }    
+            return console.log(`Missing email to authenticate. Make sure you've set ETHERNAL_EMAIL in your environment.`);
         }
 
-        return (await firebase.auth().signInWithEmailAndPassword(email, password)).user;
+        if (!password) {
+            return console.log(`Missing password to authenticate. Make sure you've set ETHERNAL_PASSWORD in your environment.`);
+        }
+
+        return await api.login(email, password);
     }
     catch(_error) {
-        console.log('Error while retrieving your credentials, please run "ethernal login"');
+        return console.log(`Error while logging in. Make sure you've set ETHERNAL_EMAIL and ETHERNAL_PASSWORD in your environment.`);
+        process.exit(1);
     }
-}
-
-async function getDefaultWorkspace() {
-    var currentUser = await db.currentUser().get();
-    var defaultWorkspace = await currentUser.data().currentWorkspace.get();
-    return { ...defaultWorkspace.data(), name: defaultWorkspace.id };
 }
 
 async function setWorkspace() {
-    if (options.workspace) {
-        currentWorkspace = await db.getWorkspace(options.workspace);
-        if (!currentWorkspace) {
-            currentWorkspace = await getDefaultWorkspace();
-            console.log(`Could not find workspace "${options.workspace}", defaulting to ${currentWorkspace.name}`);
-        }
-        else {
-            console.log(`Using workspace "${currentWorkspace.name}"`);
-        }
+    try {
+        const workspace = await api.setWorkspace(options.workspace || process.env.ETHERNAL_WORKSPACE);
+        console.log(`Using workspace "${workspace.name}"`);
+
+        return true;
+    } catch(error) {
+        console.log('Error while setting the workspace.');
+        return false;
     }
-    else {
-        currentWorkspace = await getDefaultWorkspace();
-        console.log(`Using default workspace "${currentWorkspace.name}"`);
-    }
-    db.workspace = currentWorkspace;    
 }
 
 async function setupWorkspace() {
-    user = await login();
-    if (!user) {
+    await login();
+    if (!api.isLoggedIn) {
+
         process.exit(1);
     }
-    console.log(`Logged in with ${await credentials.getEmail()}`);
+    console.log(`Logged in with ${api.currentUser.email}`);
 
     await setWorkspace();
 }
@@ -587,17 +562,18 @@ async function syncBlockRange() {
 
     if (options.server) {
         console.log('Queuing blocks syncing...');
-        await firebase.functions.httpsCallable('resyncBlocks')({ workspace: options.workspace, fromBlock: options.from, toBlock: options.to })
+        await api.syncBlockRange(options.from, options.to);
         console.log('Blocks syncing queued succesfully, they will appear on the dashboard soon!');
         process.exit(0);
     }
     else {
         await setupProvider();
         const promises = [];
-        for (var i = from; i <= to; i++)
-            promises.push(rpcProvider.getBlockWithTransactions(i).then(syncBlock));
-
-        Promise.all(promises).then(() => process.exit(0));
+        for (var i = from; i <= to; i++) {
+            const block = await rpcProvider.getBlockWithTransactions(i);
+            await syncBlock(block);
+        }
+        process.exit(0)
     }
 }
 
@@ -607,7 +583,7 @@ async function resetWorkspace(argv) {
     const workspace = argv.workspace;
     console.log(`Resetting workspace "${workspace}"...`);
     try {
-        await firebase.functions.httpsCallable('resetWorkspace')({ workspace: workspace });
+        await api.resetWorkspace(workspace);
         console.log('Done!')
         process.exit(0)
     } catch(error) {
