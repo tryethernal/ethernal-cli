@@ -250,17 +250,9 @@ async function onData(blockNumber, error) {
 
 function onError(error) {
     if (error && error.reason)
-        console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Error: ${error.reason}. Retrying in 5s...`);
+        console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Error: ${error.reason}. Retrying...`);
     else
-        console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Retrying in 5s...`);
-
-    reconnect();
-}
-
-function reconnect() {
-    if (reconnector)
-        clearTimeout(reconnector);
-    reconnector = setTimeout(connect, 5000);
+        console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Retrying...`);
 }
 
 function getProjectConfig(dir) {
