@@ -1,13 +1,11 @@
 const axios = require('axios');
 const { initializeApp } = require('firebase/app');
 const { getAuth, signInWithEmailAndPassword, connectAuthEmulator } = require('firebase/auth');
-const { getFunctions, httpsCallable, connectFunctionsEmulator } = require('firebase/functions');
 const { BlockWithTransactions, TransactionResponse, TransactionReceipt } = require('@ethersproject/abstract-provider');
 const { FIREBASE_CONFIG } = require('./config');
 
 const app = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(app);
-const functions = getFunctions(app);
 
 module.exports = class Api {
     apiRoot;
@@ -47,9 +45,6 @@ module.exports = class Api {
         try {
             if (process.env.AUTH_HOST)
                 connectAuthEmulator(auth, process.env.AUTH_HOST);
-
-            if (process.env.FUNCTIONS_HOST)
-                connectFunctionsEmulator(functions, 'localhost', 5001);
 
             await signInWithEmailAndPassword(this.auth, email, password);
 
@@ -193,31 +188,23 @@ module.exports = class Api {
         });
     }
 
-    syncContractArtifact(address, artifact) {
-        if (!address || !artifact)
-            throw new Error('[syncContractArtifact] Missing parameter');
+    async syncContractAst(address, ast) {
+        if (!address || !ast)
+            throw new Error('[syncContractAst] Missing parameter');
+
+        const firebaseAuthToken = await this.getFirebaseAuthToken();
+        if (!firebaseAuthToken)
+            throw new Error('[syncContractData] You need to be authenticated to reset a workspace');
 
         if (!this.currentWorkspace)
-            throw new Error('[syncContractArtifact] The workspace needs to be set to synchronize blocks.');
+            throw new Error('[syncContractAst] The workspace needs to be set to synchronize blocks');
 
-        return httpsCallable(functions, 'syncContractArtifact')({
-            workspace: this.currentWorkspace.name,
-            address: address,
-            artifact: artifact
-        });
-    }
-
-    syncContractDependencies(address, dependencies) {
-        if (!address || !dependencies)
-            throw new Error('[syncContractDependencies] Missing parameter');
-
-        if (!this.currentWorkspace)
-            throw new Error('[syncContractDependencies] The workspace needs to be set to synchronize blocks.');
-
-        return httpsCallable(functions, 'syncContractDependencies')({
-            workspace: this.currentWorkspace.name,
-            address: address,
-            dependencies: dependencies
+        return await axios.post(`${this.apiRoot}/api/contracts/${address}`, {
+            firebaseAuthToken,
+            data: {
+                ast: ast,
+                workspace: this.currentWorkspace.name
+            }
         });
     }
 

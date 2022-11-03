@@ -300,27 +300,19 @@ function updateContractArtifact(contract) {
         return;
     }
 
-    const promises = [];
-
-    if (options.astUpload) {
-        console.log('Uploading contract & dependencies ASTs, this might take a while depending on the size of your contracts.')
-        promises.push(api.syncContractArtifact(contract.address, contract.artifact));
-
-        for (const dep in contract.dependencies) {
-            promises.push(
-                    api.syncContractDependencies(contract.address, { [dep]: contract.dependencies[dep] }).then(console.log)
-            );
-        }
-    }
-
-    Promise.all(promises).then(() => {
-        api.syncContractData(contract.name, contract.address, contract.abi)
-            .then(() => {
+    api.syncContractData(contract.name, contract.address, contract.abi)
+        .then(() => {
+            if (options.astUpload) {
+                console.log('Uploading ASTs, this might take a while depending on the size of your contracts.')
+                api.syncContractAst(contract.address, {
+                    artifact: contract.artifact,
+                    dependencies: contract.dependencies
+                });
                 const dependencies = Object.entries(contract.dependencies).map(art => art[0]);
                 const dependenciesString = dependencies.length && options.astUpload ? ` Dependencies: ${dependencies.join(', ')}` : '';
                 console.log(`Updated artifacts for contract ${contract.name} (${contract.address}).${dependenciesString}`);
-            });
-    });
+            }
+        });
 }
 
 function watchTruffleArtifacts(dir, projectConfig) {
