@@ -17,7 +17,7 @@ const Api = require('../api');
 let user, rpcProvider, reconnector;
 let contractAddresses = {};
 
-const API_ROOT = process.env.ETHERNAL_API_ROOT || 'https://app-pql6sv7epq-uc.a.run.app';
+const API_ROOT = process.env.ETHERNAL_API_ROOT || 'https://api.tryethernal.com';
 const api = new Api(API_ROOT);
 
 const options = yargs
