@@ -501,7 +501,7 @@ async function login() {
         return await api.login(email, password);
     }
     catch(_error) {
-        return console.log(`Error while logging in. Make sure you've set ETHERNAL_EMAIL and ETHERNAL_PASSWORD in your environment.`);
+        return console.log(_error.message);
         process.exit(1);
     }
 }
