@@ -18,6 +18,7 @@ let user, rpcProvider, reconnector;
 let contractAddresses = {};
 
 const API_ROOT = process.env.ETHERNAL_API_ROOT || 'https://api.tryethernal.com';
+const API_TOKEN = process.env.ETHERNAL_API_TOKEN;
 const api = new Api(API_ROOT);
 
 const options = yargs
@@ -249,6 +250,7 @@ async function onData(blockNumber, error) {
 }
 
 function onError(error) {
+    console.log(error)
     if (error && error.reason)
         console.log(`Could not connect to ${api.currentWorkspace.rpcServer}. Error: ${error.reason}. Retrying...`);
     else
@@ -442,7 +444,13 @@ async function syncBlock(block) {
 
         for (var i = 0; i < block.transactions.length; i++) {
             const transaction = block.transactions[i];
-            const receipt = await rpcProvider.getTransactionReceipt(transaction.hash);
+            let receipt;
+
+            try {
+                receipt = await rpcProvider.getTransactionReceipt(transaction.hash);
+            } catch(error) {
+                receipt = await rpcProvider.send('eth_getTransactionReceipt', [transaction.hash]);
+            }
 
             try {
                 await api.syncTransaction(block, transaction, receipt);
@@ -487,18 +495,24 @@ async function traceTransaction(transaction) {
 
 async function login() {
     try {
-        const email = process.env.ETHERNAL_EMAIL;
-        const password = process.env.ETHERNAL_PASSWORD;
-
-        if (!email) {
-            return console.log(`Missing email to authenticate. Make sure you've set ETHERNAL_EMAIL in your environment.`);
+        if (API_TOKEN) {
+            await api.setApiToken(API_TOKEN);
+            console.log(`Authenticated with API token.`)
         }
+        else {
+            const email = process.env.ETHERNAL_EMAIL;
+            const password = process.env.ETHERNAL_PASSWORD;
 
-        if (!password) {
-            return console.log(`Missing password to authenticate. Make sure you've set ETHERNAL_PASSWORD in your environment.`);
+            if (!email) {
+                return console.log(`Missing email to authenticate. Make sure you've set ETHERNAL_EMAIL in your environment.`);
+            }
+
+            if (!password) {
+                return console.log(`Missing password to authenticate. Make sure you've set ETHERNAL_PASSWORD in your environment.`);
+            }
+
+            return await api.login(email, password);
         }
-
-        return await api.login(email, password);
     }
     catch(_error) {
         return console.log(_error.message);
