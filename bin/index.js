@@ -176,8 +176,7 @@ function setupProvider() {
     try {
         const rpcServer = new URL(api.currentWorkspace.rpcServer);
 
-        let provider = ethers.providers.WebSocketProvider;
-
+        let provider;
         if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
             provider = ethers.providers.JsonRpcProvider;
         }
@@ -185,9 +184,17 @@ function setupProvider() {
             provider = ethers.providers.WebSocketProvider;
         }
 
-        rpcProvider = new provider(api.currentWorkspace.rpcServer);
+        let authenticatedUrl = api.currentWorkspace.rpcServer;
+        if (rpcServer.username.length || rpcServer.password.length)
+            authenticatedUrl = {
+                url: rpcServer.origin,
+                user: rpcServer.username,
+                password: rpcServer.password
+            };
+
+        rpcProvider = new provider(authenticatedUrl);
     } catch(error) {
-        console.log('error');
+        console.log(error)
         process.exit(1);
     }
 }
