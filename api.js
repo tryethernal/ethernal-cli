@@ -1,11 +1,5 @@
 const axios = require('axios');
-const { initializeApp } = require('firebase/app');
-const { getAuth, signInWithEmailAndPassword, connectAuthEmulator } = require('firebase/auth');
 const { BlockWithTransactions, TransactionResponse, TransactionReceipt } = require('@ethersproject/abstract-provider');
-const { FIREBASE_CONFIG } = require('./config');
-
-const app = initializeApp(FIREBASE_CONFIG);
-const auth = getAuth(app);
 
 module.exports = class Api {
     apiRoot;
@@ -17,7 +11,6 @@ module.exports = class Api {
 
     constructor(apiRoot) {
         this.apiRoot = apiRoot;
-        this.auth = auth;
         this.currentWorkspace = {};
         this.currentUser = {};
     }
@@ -42,10 +35,6 @@ module.exports = class Api {
         return { email: this.currentUser.email };
     }
 
-    async getFirebaseAuthToken() {
-        return !this.isUsingApiToken && this.auth && this.auth.currentUser ? await this.auth.currentUser.getIdToken() : null;
-    }
-
     async setApiToken(apiToken) {
         try {
             this.apiToken = apiToken;
@@ -57,21 +46,19 @@ module.exports = class Api {
     }
 
     async fetchUser() {
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
+        if (!this.isUsingApiToken)
+            throw new Error('You need to authenticate first.');
 
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('You need to authenticate first');
-
-        this.currentUser = (await axios.get(`${this.apiRoot}/api/users/me?firebaseAuthToken=${firebaseAuthToken}`)).data;
+        this.currentUser = (await axios.get(`${this.apiRoot}/api/users/me`)).data;
 
         if (!this.currentUser.workspaces.length)
-            throw new Error(`You need to create a new workspace on ${this.webappRoot} before using the plugin`);
+            throw new Error(`You need to create a new workspace on ${this.webappRoot} before using the plugin.`);
 
         if (this.currentUser.currentWorkspace)
             this.currentWorkspace = this.currentUser.currentWorkspace;
         else {
             await this.setWorkspace(this.currentUser.workspaces[0].name);
-            await axios.post(`${this.apiRoot}/api/users/me/setCurrentWorkspace`, { firebaseAuthToken, data: { workspace: this.currentUser.workspaces[0].name }});
+            await axios.post(`${this.apiRoot}/api/users/me/setCurrentWorkspace`, { data: { workspace: this.currentUser.workspaces[0].name }});
         }
 
         return this.currentWorkspace;
@@ -80,23 +67,18 @@ module.exports = class Api {
     async login(email, password) {
         try {
             if (this.apiToken)
-                throw new Error('Authenticating with API token');
+                throw new Error('Authenticating with API token.');
 
-            if (process.env.AUTH_HOST)
-                connectAuthEmulator(auth, process.env.AUTH_HOST);
+            const { data: { user } } = await axios.post(`${this.apiRoot}/api/users/signin`, { email, password });
 
-            await signInWithEmailAndPassword(this.auth, email, password);
-
-            if (this.auth.currentUser) {
-                this.firebaseUserId = this.auth.currentUser.uid;
-                return this.fetchUser();
-            }
+            if (user)
+                await this.setApiToken(user.apiToken);
             else
-                throw new Error(`Couldn't login with the specified email/password`);
+                throw new Error(`Couldn't login with the specified email/password.`);
+
         } catch(error) {
-            if (error.code == 'auth/wrong-password')
-                throw new Error(`Couldn't login with the specified email/password`);
-            throw error;
+            console.log(error);
+            throw new Error(`Couldn't login with the specified email/password.`);
         }
     }
 
@@ -114,9 +96,8 @@ module.exports = class Api {
             if (!foundWorkspace)
                 throw new Error(`Couldn't find workspace ${workspace}. Make sure you're logged in with the correct account.`);
 
-            const firebaseAuthToken = await this.getFirebaseAuthToken();
-            if (!firebaseAuthToken && !this.isUsingApiToken)
-                throw new Error('[setWorkspace] You need to be authenticated to set a workspace');
+            if (!this.isUsingApiToken)
+                throw new Error('[setWorkspace] You need to be authenticated to set a workspace.');
         }
 
         return this.currentWorkspace;
@@ -124,56 +105,51 @@ module.exports = class Api {
 
     async resetWorkspace(workspaceName) {
         if (!workspaceName)
-            throw new Error('[resetWorkspace] Missing workspace name');
+            throw new Error('[resetWorkspace] Missing workspace name.');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[resetWorkspace] You need to be authenticated to reset a workspace');
+        if (!this.isUsingApiToken)
+            throw new Error('[resetWorkspace] You need to be authenticated to reset a workspace.');
         
-        return await axios.post(`${this.apiRoot}/api/workspaces/reset`, { firebaseAuthToken, data: { workspace: workspaceName }});
+        return await axios.post(`${this.apiRoot}/api/workspaces/reset`, { data: { workspace: workspaceName }});
     }
 
     async syncBlockRange(from, to) {
         if (from === undefined || from === null || to === undefined || to === null)
-            throw new Error('[syncBlockRange] Missing block range');
+            throw new Error('[syncBlockRange] Missing block range.');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncBlockRange] You need to be authenticated to sync a block range');
+        if (!this.isUsingApiToken)
+            throw new Error('[syncBlockRange] You need to be authenticated to synchronize a block range.');
 
         if (!this.currentWorkspace)
-            throw new Error('[syncBlockRange] A workspace needs to be set to synchronize a block range');
+            throw new Error('[syncBlockRange] A workspace needs to be set to synchronize a block range.');
 
-        return await axios.post(`${this.apiRoot}/api/blocks/syncRange`, { firebaseAuthToken, data: { workspace: this.currentWorkspace.name, from: from, to: to }});
+        return await axios.post(`${this.apiRoot}/api/blocks/syncRange`, { data: { workspace: this.currentWorkspace.name, from: from, to: to }});
     }
 
     async syncBlock(block, serverSync = false) {
         if (!block)
             throw new Error('[syncBlock] Missing block');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncBlock] You need to be authenticated to reset a workspace');
+        if (!this.isUsingApiToken)
+            throw new Error('[syncBlock] You need to be authenticated to synchronize transactions.');
 
         if (!this.currentWorkspace)
             throw new Error('[syncBlock] A workspace needs to be set to synchronize blocks.')
 
-        return await axios.post(`${this.apiRoot}/api/blocks?serverSync=${serverSync}`, { firebaseAuthToken, data: { block: block, workspace: this.currentWorkspace.name }});
+        return await axios.post(`${this.apiRoot}/api/blocks?serverSync=${serverSync}`, { data: { block: block, workspace: this.currentWorkspace.name }});
     }
 
     async syncTransaction(block, transaction, transactionReceipt) {
         if (!block || !transaction || !transactionReceipt)
-            throw new Error('[syncTransaction] Missing parameter');
+            throw new Error('[syncTransaction] Missing parameter?');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncTransaction] You need to be authenticated to reset a workspace');
+        if (!this.isUsingApiToken)
+            throw new Error('[syncTransaction] You need to be authenticated to synchronize transactions.');
 
         if (!this.currentWorkspace)
-            throw new Error('[syncTransaction] The workspace needs to be set to synchronize blocks.');
+            throw new Error('[syncTransaction] The workspace needs to be set to synchronize transactions.');
         
         return await axios.post(`${this.apiRoot}/api/transactions`, {
-            firebaseAuthToken,
             data: {
                 block: block,
                 transaction: transaction,
@@ -183,40 +159,17 @@ module.exports = class Api {
         });
     }
 
-    async syncTrace(transactionHash, trace) {
-        if (!transactionHash || !trace)
-            throw new Error('[syncTrace] Missing parameter');
-
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncTrace] You need to be authenticated to reset a workspace');
-
-        if (!this.currentWorkspace)
-            throw new Error('[syncTransaction] The workspace needs to be set to synchronize blocks.');
-    
-        return await axios.post(`${this.apiRoot}/api/transactions/${transactionHash}/trace`, {
-            firebaseAuthToken,
-            data: {
-                txHash: transactionHash,
-                steps: trace,
-                workspace: this.currentWorkspace.name
-            }
-        });
-    }
-
     async syncContractData(name, address, abi, hashedBytecode) {
         if (!name || !address)
-            throw new Error('[syncContractData] Missing parameter');
+            throw new Error('[syncContractData] Missing parameter.');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncContractData] You need to be authenticated to reset a workspace');
+        if (!this.isUsingApiToken)
+            throw new Error('[syncContractData] You need to be authenticated to synchronize contract data.');
 
         if (!this.currentWorkspace)
-            throw new Error('[syncContractData] The workspace needs to be set to synchronize blocks.');
+            throw new Error('[syncContractData] The workspace needs to be set to synchronize contract data.');
 
         return await axios.post(`${this.apiRoot}/api/contracts/${address}`, {
-            firebaseAuthToken,
             data: {
                 name: name,
                 address: address,
@@ -229,17 +182,15 @@ module.exports = class Api {
 
     async syncContractAst(address, ast) {
         if (!address || !ast)
-            throw new Error('[syncContractAst] Missing parameter');
+            throw new Error('[syncContractAst] Missing parameter.');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncContractData] You need to be authenticated to reset a workspace');
+        if (!this.isUsingApiToken)
+            throw new Error('[syncContractAst] You need to be authenticated to synchronize contract data.');
 
         if (!this.currentWorkspace)
-            throw new Error('[syncContractAst] The workspace needs to be set to synchronize blocks');
+            throw new Error('[syncContractAst] The workspace needs to be set to synchronize contract data.');
 
         return await axios.post(`${this.apiRoot}/api/contracts/${address}`, {
-            firebaseAuthToken,
             data: {
                 ast: ast,
                 workspace: this.currentWorkspace.name
@@ -249,17 +200,15 @@ module.exports = class Api {
 
     async syncTrace(transactionHash, trace) {
         if (!transactionHash || !trace)
-            throw new Error('[syncTrace] Missing parameter');
+            throw new Error('[syncTrace] Missing parameter.');
 
-        const firebaseAuthToken = await this.getFirebaseAuthToken();
-        if (!firebaseAuthToken && !this.isUsingApiToken)
-            throw new Error('[syncTrace] You need to be authenticated to reset a workspace');
+        if (!this.isUsingApiToken)
+            throw new Error('[syncTrace] You need to be authenticated to synchronize transactions trace.');
 
         if (!this.currentWorkspace)
-            throw new Error('[syncTrace] The workspace needs to be set to synchronize blocks.');
+            throw new Error('[syncTrace] The workspace needs to be set to synchronize tranactions trace.');
     
         return await axios.post(`${this.apiRoot}/api/transactions/${transactionHash}/trace`, {
-            firebaseAuthToken,
             data: {
                 txHash: transactionHash,
                 steps: trace,
