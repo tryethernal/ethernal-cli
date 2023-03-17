@@ -10,6 +10,7 @@ const path = require('path');
 const config = require('../config');
 const inquirer = require('../inquirer');
 const yaml = require('js-yaml');
+const toml = require('toml');
 const TruffleConfig = require('@truffle/config');
 const { parseTrace } = require('../tracer');
 const Api = require('../api');
@@ -72,7 +73,7 @@ function verifyContract() {
                 },
                 settings: {
                     outputSelection: {
-                       '*': { '*': ['evm.bytecode.object'] }
+                        '*': { '*': ['evm.bytecode.object'] }
                     },
                     optimizer: {
                         enabled: options.optimizer,
@@ -88,7 +89,7 @@ function verifyContract() {
                     const content = fs.readFileSync(relativePath).toString();
                     imports[relativePath] = { contents: content };
                     return imports[importPath];
-                } catch(error) {
+                } catch (error) {
                     if (importPath.startsWith('https:')) {
                         console.log(`Error with import ${importPath}: remote import are not supported`);
                         process.exit(1);
@@ -146,7 +147,7 @@ function verifyContract() {
 
             axios.post(`${API_ROOT}/api/contracts/${options.address}/verify`, data)
                 .then(() => console.log('Verification succeded!'))
-                .catch(({ response: { data }}) => console.log(`Verification failed: ${data}`))
+                .catch(({ response: { data } }) => console.log(`Verification failed: ${data}`))
                 .finally(() => process.exit(0));
         });
     } catch (error) {
@@ -186,7 +187,7 @@ function setupProvider() {
         }
 
         rpcProvider = new provider(api.currentWorkspace.rpcServer);
-    } catch(error) {
+    } catch (error) {
         console.log('error');
         process.exit(1);
     }
@@ -217,11 +218,14 @@ function watchDirectories() {
             console.log(`Detected ${projectType} project for ${path.resolve(dir)}`)
             if (projectType == 'Truffle') {
                 watchTruffleArtifacts(dir, projectConfig);
-            } else if (projectType == 'Brownie') {
+            }
+            else if (projectType == 'Brownie') {
                 if (!config.dev_deployment_artifacts) {
                     console.log("Notice: If developing locally make sure to set dev_deployment_artifacts to true in brownie-config.yaml");
                 }
                 watchBrownieArtifacts(dir, projectConfig);
+            } else if (projectType == 'Foundry') {
+                watchFoundryArtifacts(dir, projectConfig);
             }
         }
     });
@@ -234,9 +238,9 @@ async function onData(blockNumber, error) {
 
     console.log(`Syncing block #${blockNumber}...`);
     if (options.server) {
-        try {
-            await api.syncBlock({ number: blockNumber }, true);
-        } catch(_error) {
+        try {
+            await api.syncBlock({ number: blockNumber }, true);
+        } catch (_error) {
             console.log(`Error while syncing block #${blockNumber}`);
         }
     }
@@ -244,7 +248,7 @@ async function onData(blockNumber, error) {
         try {
             const block = await rpcProvider.getBlockWithTransactions(blockNumber)
             await syncBlock(block);
-        } catch(_error) {
+        } catch (_error) {
             console.log(`Error while syncing block #${blockNumber}`);
         }
 }
@@ -277,8 +281,13 @@ function getProjectConfig(dir) {
         base: 'brownie-config.yaml'
     });
 
+    var foundryConfigPath = path.format({
+        dir: dir,
+        base: 'foundry.toml'
+    });
+
     var config;
-    if (fs.existsSync(truffleConfigPath)) {
+    if (fs.existsSync(truffleConfigPath)) {
         config = TruffleConfig.detect({ workingDirectory: truffleConfigPath });
         config.project_type = 'Truffle';
     }
@@ -286,11 +295,15 @@ function getProjectConfig(dir) {
         config = yaml.load(fs.readFileSync(brownieConfigPath, 'utf8'));
         config.project_type = 'Brownie';
     }
+    else if (fs.existsSync(foundryConfigPath)) {
+        config = toml.parse(fs.readFileSync(foundryConfigPath, 'utf8'));
+        config.project_type = 'Foundry';
+    }
     else if (fs.existsSync(hardhatConfigPath)) {
         console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
     }
     else {
-        console.log(`${dir} does not appear to be a Truffle or Brownie project, contracts metadata won't be uploaded automatically.`);
+        console.log(`${dir} does not appear to be a Truffle, Brownie or Foundry project, contracts metadata won't be uploaded automatically.`);
         return false;
     }
 
@@ -344,7 +357,7 @@ function getTruffleArtifact(artifactsDir, fileName) {
         contractAddresses[parsedArtifact.contractName] = contractAddress;
         var artifactDependencies = getArtifactDependencies(parsedArtifact);
         for (const key in artifactDependencies) {
-            var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+            var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
             artifactDependencies[key] = JSON.stringify({
                 contractName: dependencyArtifact.contractName,
                 abi: dependencyArtifact.abi,
@@ -377,7 +390,7 @@ function watchBrownieArtifacts(dir, projectConfig) {
     const artifactsDir = path.format({
         dir: dir,
         base: "build/deployments"
-    }); 
+    });
     const watcher = chokidar.watch('./**/*.json', { cwd: artifactsDir, ignored: 'map.json' })
         .on('add', (path) => {
             updateContractArtifact(getBrownieArtifact(artifactsDir, path));
@@ -398,7 +411,7 @@ function getBrownieArtifact(artifactsDir, fileName) {
         contractAddresses[parsedArtifact.contractName] = contractAddress;
         var artifactDependencies = getArtifactDependencies(parsedArtifact);
         for (const key in artifactDependencies) {
-            var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+            var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
             artifactDependencies[key] = JSON.stringify({
                 contractName: dependencyArtifact.contractName,
                 abi: dependencyArtifact.abi,
@@ -422,6 +435,63 @@ function getBrownieArtifact(artifactsDir, fileName) {
     return contract;
 }
 
+
+function watchFoundryArtifacts(dir, projectConfig) {
+    if (!dir) {
+        console.log('Please specify a directory to watch.');
+        return;
+    }
+
+    const artifactsDir = path.format({
+        dir: dir,
+        base: "out"
+    });
+
+    const watcher = chokidar.watch('./**/*.json', { cwd: artifactsDir })
+        .on('add', (path) => {
+            updateContractArtifact(getFoundryArtifact(artifactsDir, path));
+        })
+        .on('change', (path) => {
+            updateContractArtifact(getFoundryArtifact(artifactsDir, path));
+        });
+}
+
+function getFoundryArtifact(artifactsDir, fileName) {
+    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
+    var contract;
+    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
+    var parsedArtifact = JSON.parse(rawArtifact);
+
+    var contractAddress = parsedArtifact.deployment ? parsedArtifact.deployment.address : null;
+    if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
+        contractAddresses[parsedArtifact.contractName] = contractAddress;
+        //var artifactDependencies = getArtifactDependencies(parsedArtifact);
+        for (const key in artifactDependencies) {
+            var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
+            artifactDependencies[key] = JSON.stringify({
+                contractName: dependencyArtifact.contractName,
+                abi: dependencyArtifact.abi,
+                ast: dependencyArtifact.ast,
+                source: dependencyArtifact.source,
+            })
+        }
+        contract = {
+            name: parsedArtifact.contractName,
+            address: contractAddress,
+            abi: parsedArtifact.abi,
+            artifact: JSON.stringify({
+                contractName: parsedArtifact.contractName,
+                abi: parsedArtifact.abi,
+                ast: parsedArtifact.ast,
+                source: parsedArtifact.source,
+            }),
+            dependencies: artifactDependencies
+        }
+    }
+    return contract;
+}
+
+
 function getArtifactDependencies(parsedArtifact) {
     var dependencies = {}
     Object.entries(parsedArtifact.ast.exportedSymbols)
@@ -429,7 +499,7 @@ function getArtifactDependencies(parsedArtifact) {
             if (symbol[0] != parsedArtifact.contractName) {
                 dependencies[symbol[0]] = null;
             }
-        });    
+        });
     return dependencies;
 }
 
@@ -438,7 +508,7 @@ async function syncBlock(block) {
         try {
             await api.syncBlock(block);
             console.log(`Synced block #${block.number}`);
-        } catch(_error) {
+        } catch (_error) {
             return console.log(`Error while syncing block #${block.number}.`);
         }
 
@@ -448,14 +518,14 @@ async function syncBlock(block) {
 
             try {
                 receipt = await rpcProvider.getTransactionReceipt(transaction.hash);
-            } catch(error) {
+            } catch (error) {
                 receipt = await rpcProvider.send('eth_getTransactionReceipt', [transaction.hash]);
             }
 
             try {
                 await api.syncTransaction(block, transaction, receipt);
                 console.log(`Synced transaction ${transaction.hash}`);
-            } catch(_error) {
+            } catch (_error) {
                 console.log(`Error while syncing transaction ${transaction.hash}.`);
             }
 
@@ -463,7 +533,7 @@ async function syncBlock(block) {
                 try {
                     await traceTransaction(transaction)
                     console.log(`Synced trace for transaction ${transaction.hash}`);
-                } catch(_error) {
+                } catch (_error) {
                     console.log(`Error while syncing trace for transaction ${transaction.hash}.`);
                 }
             }
@@ -475,17 +545,17 @@ async function syncBlock(block) {
     }
 }
 
-function shouldSyncTrace() {
+function shouldSyncTrace() {
     return api.currentWorkspace && api.currentWorkspace.tracing == 'other';
 }
-    
+
 async function traceTransaction(transaction) {
     try {
         const trace = await rpcProvider.send('debug_traceTransaction', [transaction.hash, {}]).catch(() => null);
 
         const parsedTrace = await parseTrace(transaction.to, trace, rpcProvider);
         return api.syncTrace(transaction.hash, parsedTrace);
-    } catch(error) {
+    } catch (error) {
         if (error.error && error.error.code == '-32601')
             console.log('debug_traceTransaction is not available');
         else
@@ -514,7 +584,7 @@ async function login() {
             return await api.login(email, password);
         }
     }
-    catch(_error) {
+    catch (_error) {
         return console.log(_error.message);
         process.exit(1);
     }
@@ -526,7 +596,7 @@ async function setWorkspace() {
         console.log(`Using workspace "${workspace.name}"`);
 
         return true;
-    } catch(error) {
+    } catch (error) {
         console.log('Error while setting the workspace.');
         return false;
     }
@@ -584,7 +654,7 @@ async function resetWorkspace(argv) {
         await api.resetWorkspace(workspace);
         console.log('Done!')
         process.exit(0)
-    } catch(error) {
+    } catch (error) {
         console.log(`Error while resetting workspace: ${error.message}`);
         process.exit(1);
     }
