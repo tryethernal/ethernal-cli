@@ -1,6 +1,6 @@
 {
   "name": "ethernal",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "CLI interface for Ethernal",
   "repository": "github:tryethernal/ethernal-cli",
   "author": "Antoine de Chevigné",
