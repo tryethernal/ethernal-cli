@@ -486,7 +486,7 @@ async function syncBlock(block) {
 function shouldSyncTrace() {
     return api.currentWorkspace && api.currentWorkspace.tracing == 'other';
 }
-    
+
 async function traceTransaction(transaction) {
     try {
         const trace = await rpcProvider.send('debug_traceTransaction', [transaction.hash, {}]).catch(() => null);

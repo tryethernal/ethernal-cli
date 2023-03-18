@@ -30,7 +30,7 @@ exports.parseTrace = async (from, trace, provider) => {
                     parsedOps.push({
                         op: log.op,
                         address: address,
-                        input: input,o
+                        input: input,
                         returnData: out != '0x' ? out : '',
                         depth: log.depth,
                         contractHashedBytecode: ethers.utils.keccak256(bytecode)
