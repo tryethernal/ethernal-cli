@@ -444,51 +444,61 @@ function watchFoundryArtifacts(dir, projectConfig) {
 
     const artifactsDir = path.format({
         dir: dir,
-        base: "out"
+        base: "broadcast"
     });
 
-    const watcher = chokidar.watch('./**/*.json', { cwd: artifactsDir })
-        .on('add', (path) => {
-            updateContractArtifact(getFoundryArtifact(artifactsDir, path));
-        })
+    const watcher = chokidar.watch('./**/**/run-latest.json', { cwd: artifactsDir })
         .on('change', (path) => {
-            updateContractArtifact(getFoundryArtifact(artifactsDir, path));
+            for (contract of getFoundryArtifacts(artifactsDir, path)) {
+                updateContractArtifact(contract);
+            }
         });
 }
 
-function getFoundryArtifact(artifactsDir, fileName) {
+function* getFoundryArtifacts(artifactsDir, fileName) {
     console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
     var contract;
     var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
     var parsedArtifact = JSON.parse(rawArtifact);
 
-    var contractAddress = parsedArtifact.deployment ? parsedArtifact.deployment.address : null;
-    if (contractAddress && contractAddress != contractAddresses[parsedArtifact.contractName]) {
-        contractAddresses[parsedArtifact.contractName] = contractAddress;
-        //var artifactDependencies = getArtifactDependencies(parsedArtifact);
-        for (const key in artifactDependencies) {
-            var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
-            artifactDependencies[key] = JSON.stringify({
-                contractName: dependencyArtifact.contractName,
-                abi: dependencyArtifact.abi,
-                ast: dependencyArtifact.ast,
-                source: dependencyArtifact.source,
-            })
-        }
-        contract = {
-            name: parsedArtifact.contractName,
-            address: contractAddress,
-            abi: parsedArtifact.abi,
-            artifact: JSON.stringify({
-                contractName: parsedArtifact.contractName,
-                abi: parsedArtifact.abi,
-                ast: parsedArtifact.ast,
-                source: parsedArtifact.source,
-            }),
-            dependencies: artifactDependencies
+    for (tx of parsedArtifact.transactions) {
+
+        var contractAddress = tx.contractAddress;
+        var contractName = tx.contractName;
+
+        if (contractAddress && contractAddress != contractAddresses[contractName]) {
+            contractAddresses[parsedArtifact.contractName] = contractAddress;
+            //var artifactDependencies = getArtifactDependencies(parsedArtifact);
+            //            for (const key in artifactDependencies) {
+            //var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
+            //artifactDependencies[key] = JSON.stringify({
+            //contractName: dependencyArtifact.contractName,
+            //abi: dependencyArtifact.abi,
+            //ast: dependencyArtifact.ast,
+            //source: dependencyArtifact.source,
+            //})
+            //}
+
+            // screen all "contractName" matching out/*/contractName.json
+            //  on solidity-file-cache.json first
+            //  filter on matching deployed bytecode
+            contract = {
+                name: contractName,
+                address: contractAddress,
+                abi: [],
+                //                abi: parsedArtifact.abi,
+                //artifact: JSON.stringify({
+                //contractName: parsedArtifact.contractName,
+                //abi: parsedArtifact.abi,
+                //ast: parsedArtifact.ast,
+                //source: parsedArtifact.source,
+                //}),
+                //dependencies: artifactDependencies
+                //}
+            }
+            yield contract;
         }
     }
-    return contract;
 }
 
 
