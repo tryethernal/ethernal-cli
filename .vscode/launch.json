@@ -15,6 +15,7 @@
       "envFile": "${workspaceFolder}/.env",
       "args": [
         "listen",
+        "--astUpload=true",
         "-d=../edu_foundry/"
       ],
       "stopOnEntry": true

@@ -14,6 +14,7 @@ const toml = require('toml');
 const TruffleConfig = require('@truffle/config');
 const { parseTrace } = require('../tracer');
 const Api = require('../api');
+const { confirmPasswordReset } = require('firebase/auth');
 
 let user, rpcProvider, reconnector;
 let contractAddresses = {};
@@ -435,30 +436,52 @@ function getBrownieArtifact(artifactsDir, fileName) {
     return contract;
 }
 
-
 function watchFoundryArtifacts(dir, projectConfig) {
     if (!dir) {
         console.log('Please specify a directory to watch.');
         return;
     }
 
-    const artifactsDir = path.format({
+    const broadcastDir = path.format({
         dir: dir,
         base: "broadcast"
     });
 
-    const watcher = chokidar.watch('./**/**/run-latest.json', { cwd: artifactsDir })
+    // Building a map of contract name to source and json file from
+    // the solidity-files-cache.json file
+    const solidityFilesCache = JSON.parse(fs.readFileSync(
+        path.join(dir, "cache", "solidity-files-cache.json"
+        ), 'utf8'));
+
+    const contractInfoMap = {};
+    for (const [file, fileInfo] of Object.entries(solidityFilesCache.files)) {
+        for (const [artifact, artifactInfo] of Object.entries(fileInfo.artifacts)) {
+            contractInfoMap[artifact] = {
+                "source": path.join(dir, file),
+                "json": path.join(dir, "out", Object.values(artifactInfo)[0])
+            }
+        }
+    }
+
+    // Watching for changes to the run-latest.json files only
+    // to get the contract name (that seems to be missing in .json files)
+    const watcher = chokidar.watch('./**/**/run-latest.json', { cwd: broadcastDir })
         .on('change', (path) => {
-            for (contract of getFoundryArtifacts(artifactsDir, path)) {
+            for (contract of getFoundryArtifacts(broadcastDir, path, contractInfoMap)) {
+                updateContractArtifact(contract);
+            }
+        })
+        .on("add", (path) => {
+            for (contract of getFoundryArtifacts(broadcastDir, path, contractInfoMap)) {
                 updateContractArtifact(contract);
             }
         });
 }
 
-function* getFoundryArtifacts(artifactsDir, fileName) {
-    console.log(`Getting artifact for ${fileName} in ${artifactsDir}`);
+function* getFoundryArtifacts(broadcastDir, fileName, contractInfoMap) {
+    console.log(`Getting artifacts for ${fileName} in ${broadcastDir}`);
     var contract;
-    var rawArtifact = fs.readFileSync(path.format({ dir: artifactsDir, base: fileName }), 'utf8');
+    var rawArtifact = fs.readFileSync(path.format({ dir: broadcastDir, base: fileName }), 'utf8');
     var parsedArtifact = JSON.parse(rawArtifact);
 
     for (tx of parsedArtifact.transactions) {
@@ -466,35 +489,53 @@ function* getFoundryArtifacts(artifactsDir, fileName) {
         var contractAddress = tx.contractAddress;
         var contractName = tx.contractName;
 
+        // if contractName is null, consider to run forge script in verbose mode
+        // https://github.com/foundry-rs/foundry/issues/2593
+        if (contractName == null) {
+            console.log("contractName is null. Please run forge script in verbose mode -vvvv.");
+            continue;
+        }
+
         if (contractAddress && contractAddress != contractAddresses[contractName]) {
             contractAddresses[parsedArtifact.contractName] = contractAddress;
-            //var artifactDependencies = getArtifactDependencies(parsedArtifact);
-            //            for (const key in artifactDependencies) {
-            //var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
-            //artifactDependencies[key] = JSON.stringify({
-            //contractName: dependencyArtifact.contractName,
-            //abi: dependencyArtifact.abi,
-            //ast: dependencyArtifact.ast,
-            //source: dependencyArtifact.source,
-            //})
-            //}
 
-            // screen all "contractName" matching out/*/contractName.json
-            //  on solidity-file-cache.json first
-            //  filter on matching deployed bytecode
+            if (contractName in contractInfoMap) {
+                var jsonPath = contractInfoMap[contractName].json;
+                console.log(`Getting artifact for ${contractName} from ${jsonPath}`);
+                var outParsedArtifact = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            }
+
+            var artifactDependencies = getArtifactDependencies(outParsedArtifact, contractName);
+
+            for (const artifactDependency in artifactDependencies) {
+                if (artifactDependency in contractInfoMap) {
+                    var jsonPath = contractInfoMap[artifactDependency].json;
+                    console.log(`Getting dependency artifact for ${artifactDependency} from ${jsonPath}`);
+                    var dependencyArtifact = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+
+                    var srcPath = contractInfoMap[artifactDependency].source;
+
+                    artifactDependencies[artifactDependency] = JSON.stringify({
+                        contractName: artifactDependency,
+                        abi: dependencyArtifact.abi,
+                        ast: dependencyArtifact.ast,
+                        source: fs.readFileSync(srcPath, 'utf8')
+                    })
+                }
+            }
+
+            var srcPath = contractInfoMap[contractName].source;
             contract = {
                 name: contractName,
                 address: contractAddress,
-                abi: [],
-                //                abi: parsedArtifact.abi,
-                //artifact: JSON.stringify({
-                //contractName: parsedArtifact.contractName,
-                //abi: parsedArtifact.abi,
-                //ast: parsedArtifact.ast,
-                //source: parsedArtifact.source,
-                //}),
-                //dependencies: artifactDependencies
-                //}
+                abi: outParsedArtifact.abi,
+                artifact: JSON.stringify({
+                    contractName: contractName,
+                    abi: outParsedArtifact.abi,
+                    ast: outParsedArtifact.ast,
+                    source: fs.readFileSync(srcPath, 'utf8')
+                }),
+                dependencies: artifactDependencies
             }
             yield contract;
         }
@@ -507,6 +548,17 @@ function getArtifactDependencies(parsedArtifact) {
     Object.entries(parsedArtifact.ast.exportedSymbols)
         .forEach(symbol => {
             if (symbol[0] != parsedArtifact.contractName) {
+                dependencies[symbol[0]] = null;
+            }
+        });
+    return dependencies;
+}
+
+function getArtifactDependencies(parsedArtifact, contractName) {
+    var dependencies = {}
+    Object.entries(parsedArtifact.ast.exportedSymbols)
+        .forEach(symbol => {
+            if (symbol[0] != contractName) {
                 dependencies[symbol[0]] = null;
             }
         });
