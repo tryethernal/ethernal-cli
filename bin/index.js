@@ -14,7 +14,6 @@ const toml = require('toml');
 const TruffleConfig = require('@truffle/config');
 const { parseTrace } = require('../tracer');
 const Api = require('../api');
-const { confirmPasswordReset } = require('firebase/auth');
 
 let user, rpcProvider, reconnector;
 let contractAddresses = {};
