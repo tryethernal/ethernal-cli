@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const inquirer = require('../inquirer');
 const yaml = require('js-yaml');
+const toml = require('toml');
 const TruffleConfig = require('@truffle/config');
 const { parseTrace } = require('../tracer');
 const Api = require('../api');
@@ -71,7 +72,7 @@ function verifyContract() {
                 },
                 settings: {
                     outputSelection: {
-                       '*': { '*': ['evm.bytecode.object'] }
+                        '*': { '*': ['evm.bytecode.object'] }
                     },
                     optimizer: {
                         enabled: options.optimizer,
@@ -87,7 +88,7 @@ function verifyContract() {
                     const content = fs.readFileSync(relativePath).toString();
                     imports[relativePath] = { contents: content };
                     return imports[importPath];
-                } catch(error) {
+                } catch (error) {
                     if (importPath.startsWith('https:')) {
                         console.log(`Error with import ${importPath}: remote import are not supported`);
                         process.exit(1);
@@ -145,7 +146,7 @@ function verifyContract() {
 
             axios.post(`${API_ROOT}/api/contracts/${options.address}/verify`, data)
                 .then(() => console.log('Verification succeded!'))
-                .catch(({ response: { data }}) => console.log(`Verification failed: ${data}`))
+                .catch(({ response: { data } }) => console.log(`Verification failed: ${data}`))
                 .finally(() => process.exit(0));
         });
     } catch (error) {
@@ -192,8 +193,8 @@ function setupProvider() {
             };
 
         rpcProvider = new provider(authenticatedUrl);
-    } catch(error) {
-        console.log(error)
+    } catch (error) {
+        console.log(error);
         process.exit(1);
     }
 }
@@ -223,11 +224,14 @@ function watchDirectories() {
             console.log(`Detected ${projectType} project for ${path.resolve(dir)}`)
             if (projectType == 'Truffle') {
                 watchTruffleArtifacts(dir, projectConfig);
-            } else if (projectType == 'Brownie') {
+            }
+            else if (projectType == 'Brownie') {
                 if (!config.dev_deployment_artifacts) {
                     console.log("Notice: If developing locally make sure to set dev_deployment_artifacts to true in brownie-config.yaml");
                 }
                 watchBrownieArtifacts(dir, projectConfig);
+            } else if (projectType == 'Foundry') {
+                watchFoundryArtifacts(dir, projectConfig);
             }
         }
     });
@@ -240,9 +244,9 @@ async function onData(blockNumber, error) {
 
     console.log(`Syncing block #${blockNumber}...`);
     if (options.server) {
-        try {
-            await api.syncBlock({ number: blockNumber }, true);
-        } catch(_error) {
+        try {
+            await api.syncBlock({ number: blockNumber }, true);
+        } catch (_error) {
             console.log(`Error while syncing block #${blockNumber}`);
         }
     }
@@ -250,7 +254,7 @@ async function onData(blockNumber, error) {
         try {
             const block = await rpcProvider.getBlockWithTransactions(blockNumber)
             await syncBlock(block);
-        } catch(_error) {
+        } catch (_error) {
             console.log(`Error while syncing block #${blockNumber}`);
         }
 }
@@ -283,8 +287,13 @@ function getProjectConfig(dir) {
         base: 'brownie-config.yaml'
     });
 
+    var foundryConfigPath = path.format({
+        dir: dir,
+        base: 'foundry.toml'
+    });
+
     var config;
-    if (fs.existsSync(truffleConfigPath)) {
+    if (fs.existsSync(truffleConfigPath)) {
         config = TruffleConfig.detect({ workingDirectory: truffleConfigPath });
         config.project_type = 'Truffle';
     }
@@ -292,11 +301,15 @@ function getProjectConfig(dir) {
         config = yaml.load(fs.readFileSync(brownieConfigPath, 'utf8'));
         config.project_type = 'Brownie';
     }
+    else if (fs.existsSync(foundryConfigPath)) {
+        config = toml.parse(fs.readFileSync(foundryConfigPath, 'utf8'));
+        config.project_type = 'Foundry';
+    }
     else if (fs.existsSync(hardhatConfigPath)) {
         console.log(`${dir} appears to be a Hardhat project, if you are looking to synchronize contracts metadata, please look at our dedicated plugin here: https://github.com/tryethernal/hardhat-ethernal.`);
     }
     else {
-        console.log(`${dir} does not appear to be a Truffle or Brownie project, contracts metadata won't be uploaded automatically.`);
+        console.log(`${dir} does not appear to be a Truffle, Brownie or Foundry project, contracts metadata won't be uploaded automatically.`);
         return false;
     }
 
@@ -352,7 +365,7 @@ function getTruffleArtifact(artifactsDir, fileName) {
         contractAddresses[parsedArtifact.contractName] = contractAddress;
         var artifactDependencies = getArtifactDependencies(parsedArtifact);
         for (const key in artifactDependencies) {
-            var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+            var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
             artifactDependencies[key] = JSON.stringify({
                 contractName: dependencyArtifact.contractName,
                 abi: dependencyArtifact.abi,
@@ -385,7 +398,7 @@ function watchBrownieArtifacts(dir, projectConfig) {
     const artifactsDir = path.format({
         dir: dir,
         base: "build/deployments"
-    }); 
+    });
     const watcher = chokidar.watch('./**/*.json', { cwd: artifactsDir, ignored: 'map.json' })
         .on('add', (path) => {
             updateContractArtifact(getBrownieArtifact(artifactsDir, path));
@@ -406,7 +419,7 @@ function getBrownieArtifact(artifactsDir, fileName) {
         contractAddresses[parsedArtifact.contractName] = contractAddress;
         var artifactDependencies = getArtifactDependencies(parsedArtifact);
         for (const key in artifactDependencies) {
-            var dependencyArtifact =  JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json`}), 'utf8'));
+            var dependencyArtifact = JSON.parse(fs.readFileSync(path.format({ dir: artifactsDir, base: `${key}.json` }), 'utf8'));
             artifactDependencies[key] = JSON.stringify({
                 contractName: dependencyArtifact.contractName,
                 abi: dependencyArtifact.abi,
@@ -430,6 +443,120 @@ function getBrownieArtifact(artifactsDir, fileName) {
     return contract;
 }
 
+
+function readFoundrySolidityCache(dir) {
+    // Building a map of contract name to source and json file from
+    // the solidity-files-cache.json file
+    const solidityFilesCache = JSON.parse(fs.readFileSync(
+        path.join(dir, "cache", "solidity-files-cache.json"
+        ), 'utf8'));
+
+    const contractInfoMap = {};
+    for (const [file, fileInfo] of Object.entries(solidityFilesCache.files)) {
+        for (const [artifact, artifactInfo] of Object.entries(fileInfo.artifacts)) {
+            contractInfoMap[artifact] = {
+                "source": path.join(dir, file),
+                "json": path.join(dir, "out", Object.values(artifactInfo)[0])
+            }
+        }
+    }
+
+    return contractInfoMap;
+}
+
+function watchFoundryArtifacts(dir, projectConfig) {
+    if (!dir) {
+        console.log('Please specify a directory to watch.');
+        return;
+    }
+
+    const broadcastDir = path.format({
+        dir: dir,
+        base: "broadcast"
+    });
+
+    // Watching for changes to the run-latest.json files only
+    // to get the contract name (that seems to be missing in .json files)
+    const watcher = chokidar.watch('./**/**/run-latest.json', { cwd: broadcastDir })
+        .on('change', (path) => {
+            var contractInfoMap = readFoundrySolidityCache(dir);
+            for (contract of getFoundryArtifacts(broadcastDir, path, contractInfoMap)) {
+                updateContractArtifact(contract);
+            }
+        })
+        .on("add", (path) => {
+            var contractInfoMap = readFoundrySolidityCache(dir);
+            for (contract of getFoundryArtifacts(broadcastDir, path, contractInfoMap)) {
+                updateContractArtifact(contract);
+            }
+        });
+}
+
+function* getFoundryArtifacts(broadcastDir, fileName, contractInfoMap) {
+    console.log(`Getting artifacts for ${fileName} in ${broadcastDir}`);
+    var contract;
+    var rawArtifact = fs.readFileSync(path.format({ dir: broadcastDir, base: fileName }), 'utf8');
+    var parsedArtifact = JSON.parse(rawArtifact);
+
+    for (tx of parsedArtifact.transactions) {
+
+        var contractAddress = tx.contractAddress;
+        var contractName = tx.contractName;
+
+        // if contractName is null, consider to run forge script in verbose mode
+        // https://github.com/foundry-rs/foundry/issues/2593
+        if (contractName == null) {
+            console.log("contractName is null. Please run forge script in verbose mode -vvvv.");
+            continue;
+        }
+
+        if (contractAddress && contractAddress != contractAddresses[contractName]) {
+            contractAddresses[parsedArtifact.contractName] = contractAddress;
+
+            if (contractName in contractInfoMap) {
+                var jsonPath = contractInfoMap[contractName].json;
+                console.log(`Getting artifact for ${contractName} from ${jsonPath}`);
+                var outParsedArtifact = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            }
+
+            var artifactDependencies = getArtifactDependencies(outParsedArtifact, contractName);
+
+            for (const artifactDependency in artifactDependencies) {
+                if (artifactDependency in contractInfoMap) {
+                    var jsonPath = contractInfoMap[artifactDependency].json;
+                    console.log(`Getting dependency artifact for ${artifactDependency} from ${jsonPath}`);
+                    var dependencyArtifact = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+
+                    var srcPath = contractInfoMap[artifactDependency].source;
+
+                    artifactDependencies[artifactDependency] = JSON.stringify({
+                        contractName: artifactDependency,
+                        abi: dependencyArtifact.abi,
+                        ast: dependencyArtifact.ast,
+                        source: fs.readFileSync(srcPath, 'utf8')
+                    })
+                }
+            }
+
+            var srcPath = contractInfoMap[contractName].source;
+            contract = {
+                name: contractName,
+                address: contractAddress,
+                abi: outParsedArtifact.abi,
+                artifact: JSON.stringify({
+                    contractName: contractName,
+                    abi: outParsedArtifact.abi,
+                    ast: outParsedArtifact.ast,
+                    source: fs.readFileSync(srcPath, 'utf8')
+                }),
+                dependencies: artifactDependencies
+            }
+            yield contract;
+        }
+    }
+}
+
+
 function getArtifactDependencies(parsedArtifact) {
     var dependencies = {}
     Object.entries(parsedArtifact.ast.exportedSymbols)
@@ -437,7 +564,18 @@ function getArtifactDependencies(parsedArtifact) {
             if (symbol[0] != parsedArtifact.contractName) {
                 dependencies[symbol[0]] = null;
             }
-        });    
+        });
+    return dependencies;
+}
+
+function getArtifactDependencies(parsedArtifact, contractName) {
+    var dependencies = {}
+    Object.entries(parsedArtifact.ast.exportedSymbols)
+        .forEach(symbol => {
+            if (symbol[0] != contractName) {
+                dependencies[symbol[0]] = null;
+            }
+        });
     return dependencies;
 }
 
@@ -446,7 +584,7 @@ async function syncBlock(block) {
         try {
             await api.syncBlock(block);
             console.log(`Synced block #${block.number}`);
-        } catch(_error) {
+        } catch (_error) {
             return console.log(`Error while syncing block #${block.number}.`);
         }
 
@@ -456,14 +594,14 @@ async function syncBlock(block) {
 
             try {
                 receipt = await rpcProvider.getTransactionReceipt(transaction.hash);
-            } catch(error) {
+            } catch (error) {
                 receipt = await rpcProvider.send('eth_getTransactionReceipt', [transaction.hash]);
             }
 
             try {
                 await api.syncTransaction(block, transaction, receipt);
                 console.log(`Synced transaction ${transaction.hash}`);
-            } catch(_error) {
+            } catch (_error) {
                 console.log(`Error while syncing transaction ${transaction.hash}.`);
             }
 
@@ -471,7 +609,7 @@ async function syncBlock(block) {
                 try {
                     await traceTransaction(transaction)
                     console.log(`Synced trace for transaction ${transaction.hash}`);
-                } catch(_error) {
+                } catch (_error) {
                     console.log(`Error while syncing trace for transaction ${transaction.hash}.`);
                 }
             }
@@ -483,7 +621,7 @@ async function syncBlock(block) {
     }
 }
 
-function shouldSyncTrace() {
+function shouldSyncTrace() {
     return api.currentWorkspace && api.currentWorkspace.tracing == 'other';
 }
 
@@ -493,7 +631,7 @@ async function traceTransaction(transaction) {
 
         const parsedTrace = await parseTrace(transaction.to, trace, rpcProvider);
         return api.syncTrace(transaction.hash, parsedTrace);
-    } catch(error) {
+    } catch (error) {
         if (error.error && error.error.code == '-32601')
             console.log('debug_traceTransaction is not available');
         else
@@ -522,7 +660,7 @@ async function login() {
             return await api.login(email, password);
         }
     }
-    catch(_error) {
+    catch (_error) {
         return console.log(_error.message);
         process.exit(1);
     }
@@ -534,7 +672,7 @@ async function setWorkspace() {
         console.log(`Using workspace "${workspace.name}"`);
 
         return true;
-    } catch(error) {
+    } catch (error) {
         console.log('Error while setting the workspace.');
         return false;
     }
@@ -592,7 +730,7 @@ async function resetWorkspace(argv) {
         await api.resetWorkspace(workspace);
         console.log('Done!')
         process.exit(0)
-    } catch(error) {
+    } catch (error) {
         console.log(`Error while resetting workspace: ${error.message}`);
         process.exit(1);
     }
