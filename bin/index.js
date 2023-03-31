@@ -7,7 +7,6 @@ const ethers = require('ethers');
 const chokidar = require('chokidar');
 const fs = require('fs');
 const path = require('path');
-const config = require('../config');
 const inquirer = require('../inquirer');
 const yaml = require('js-yaml');
 const toml = require('toml');
@@ -177,8 +176,7 @@ function setupProvider() {
     try {
         const rpcServer = new URL(api.currentWorkspace.rpcServer);
 
-        let provider = ethers.providers.WebSocketProvider;
-
+        let provider;
         if (rpcServer.protocol == 'http:' || rpcServer.protocol == 'https:') {
             provider = ethers.providers.JsonRpcProvider;
         }
@@ -196,7 +194,7 @@ function setupProvider() {
 
         rpcProvider = new provider(authenticatedUrl);
     } catch (error) {
-        console.log(error)
+        console.log(error);
         process.exit(1);
     }
 }
@@ -325,6 +323,7 @@ function updateContractArtifact(contract) {
 
     api.syncContractData(contract.name, contract.address, contract.abi)
         .then(() => {
+            console.log(`Updated ABI for contract ${contract.name} (${contract.address})`);
             if (options.astUpload) {
                 console.log('Uploading ASTs, this might take a while depending on the size of your contracts.')
                 api.syncContractAst(contract.address, {
@@ -335,7 +334,8 @@ function updateContractArtifact(contract) {
                 const dependenciesString = dependencies.length && options.astUpload ? ` Dependencies: ${dependencies.join(', ')}` : '';
                 console.log(`Updated artifacts for contract ${contract.name} (${contract.address}).${dependenciesString}`);
             }
-        });
+        })
+        .catch(console.log)
 }
 
 function watchTruffleArtifacts(dir, projectConfig) {
