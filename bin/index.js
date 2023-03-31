@@ -186,9 +186,17 @@ function setupProvider() {
             provider = ethers.providers.WebSocketProvider;
         }
 
-        rpcProvider = new provider(api.currentWorkspace.rpcServer);
+        let authenticatedUrl = api.currentWorkspace.rpcServer;
+        if (rpcServer.username.length || rpcServer.password.length)
+            authenticatedUrl = {
+                url: rpcServer.origin,
+                user: rpcServer.username,
+                password: rpcServer.password
+            };
+
+        rpcProvider = new provider(authenticatedUrl);
     } catch (error) {
-        console.log('error');
+        console.log(error);
         process.exit(1);
     }
 }
@@ -435,17 +443,8 @@ function getBrownieArtifact(artifactsDir, fileName) {
     return contract;
 }
 
-function watchFoundryArtifacts(dir, projectConfig) {
-    if (!dir) {
-        console.log('Please specify a directory to watch.');
-        return;
-    }
 
-    const broadcastDir = path.format({
-        dir: dir,
-        base: "broadcast"
-    });
-
+function readFoundrySolidityCache(dir) {
     // Building a map of contract name to source and json file from
     // the solidity-files-cache.json file
     const solidityFilesCache = JSON.parse(fs.readFileSync(
@@ -462,15 +461,31 @@ function watchFoundryArtifacts(dir, projectConfig) {
         }
     }
 
+    return contractInfoMap;
+}
+
+function watchFoundryArtifacts(dir, projectConfig) {
+    if (!dir) {
+        console.log('Please specify a directory to watch.');
+        return;
+    }
+
+    const broadcastDir = path.format({
+        dir: dir,
+        base: "broadcast"
+    });
+
     // Watching for changes to the run-latest.json files only
     // to get the contract name (that seems to be missing in .json files)
     const watcher = chokidar.watch('./**/**/run-latest.json', { cwd: broadcastDir })
         .on('change', (path) => {
+            var contractInfoMap = readFoundrySolidityCache(dir);
             for (contract of getFoundryArtifacts(broadcastDir, path, contractInfoMap)) {
                 updateContractArtifact(contract);
             }
         })
         .on("add", (path) => {
+            var contractInfoMap = readFoundrySolidityCache(dir);
             for (contract of getFoundryArtifacts(broadcastDir, path, contractInfoMap)) {
                 updateContractArtifact(contract);
             }
