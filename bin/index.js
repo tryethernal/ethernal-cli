@@ -569,13 +569,15 @@ function getArtifactDependencies(parsedArtifact) {
 }
 
 function getArtifactDependencies(parsedArtifact, contractName) {
-    var dependencies = {}
-    Object.entries(parsedArtifact.ast.exportedSymbols)
-        .forEach(symbol => {
-            if (symbol[0] != contractName) {
-                dependencies[symbol[0]] = null;
-            }
-        });
+    var dependencies = {};
+    if (parsedArtifact.ast && parsedArtifact.ast.exportedSymbols) {
+        Object.entries(parsedArtifact.ast.exportedSymbols)
+            .forEach(symbol => {
+                if (symbol[0] != contractName) {
+                    dependencies[symbol[0]] = null;
+                }
+            });
+    }
     return dependencies;
 }
 
