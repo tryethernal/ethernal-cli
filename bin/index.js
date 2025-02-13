@@ -456,7 +456,7 @@ function readFoundrySolidityCache(dir) {
         for (const [artifact, artifactInfo] of Object.entries(fileInfo.artifacts)) {
             contractInfoMap[artifact] = {
                 "source": path.join(dir, file),
-                "json": path.join(dir, "out", Object.values(artifactInfo)[0])
+                "json": path.join(dir, "out", Object.values(artifactInfo)[0].default.path)
             }
         }
     }
