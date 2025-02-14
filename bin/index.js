@@ -454,10 +454,11 @@ function readFoundrySolidityCache(dir) {
     const contractInfoMap = {};
     for (const [file, fileInfo] of Object.entries(solidityFilesCache.files)) {
         for (const [artifact, artifactInfo] of Object.entries(fileInfo.artifacts)) {
+            const artifactPath = Object.values(artifactInfo)[0];
             contractInfoMap[artifact] = {
                 "source": path.join(dir, file),
-                "json": path.join(dir, "out", Object.values(artifactInfo)[0])
-            }
+                "json": path.join(dir, "out", artifactPath.default?.path ?? artifactPath)
+            };
         }
     }
 
@@ -569,13 +570,15 @@ function getArtifactDependencies(parsedArtifact) {
 }
 
 function getArtifactDependencies(parsedArtifact, contractName) {
-    var dependencies = {}
-    Object.entries(parsedArtifact.ast.exportedSymbols)
-        .forEach(symbol => {
-            if (symbol[0] != contractName) {
-                dependencies[symbol[0]] = null;
-            }
-        });
+    var dependencies = {};
+    if (parsedArtifact.ast && parsedArtifact.ast.exportedSymbols) {
+        Object.entries(parsedArtifact.ast.exportedSymbols)
+            .forEach(symbol => {
+                if (symbol[0] != contractName) {
+                    dependencies[symbol[0]] = null;
+                }
+            });
+    }
     return dependencies;
 }
 
