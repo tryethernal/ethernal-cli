@@ -18,8 +18,8 @@ let user, rpcProvider, reconnector;
 let contractAddresses = {};
 
 const API_ROOT = process.env.ETHERNAL_API_ROOT || 'https://api.tryethernal.com';
-const API_TOKEN = process.env.ETHERNAL_API_TOKEN;
-const api = new Api(API_ROOT);
+const API_TOKEN = process.env.ETHERNAL_API_TOKEN= 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmaXJlYmFzZVVzZXJJZCI6Imw1aTJZWEZuQXVlMHVNa2kxRDg1em9uVjdOUTIiLCJhcGlLZXkiOiJKVzlURlJNLVo4Q01WMUItSjZZUVI0Ry1CQjROUzY0XHUwMDAxIiwiaWF0IjoxNzQ0NDMwODYyfQ.LftKwdrz64AzPIO3BcLXXaYiSqrtU7Lu4lP4crSRj4g ethernallisten'
+const api = new Api(API_ROOT);o
 
 const options = yargs
     .command('listen', 'Start listening for transactions', (yargs) => {
